@@ -574,17 +574,19 @@ def test_case_study_analyses_the_motor_of_its_config(tmp_path):
 def test_case_study_reads_each_pi_log_once(tmp_path, monkeypatch):
     from collections import Counter
 
+    from duckiebot_analysis.data import pilogs
     from synthetic_case_study import write_case_study_data
 
     trials = write_case_study_data(tmp_path, cs.MOTOR, cs.LABEL)
     reads: Counter[str] = Counter()
-    read = cs.read_pi_log
+    read = pilogs.read_pi_log
 
     def counting(path, *args, **kwargs):
         reads[Path(path).name] += 1
         return read(path, *args, **kwargs)
 
-    monkeypatch.setattr(cs, "read_pi_log", counting)
+    # The case study reads the logs as the processing does (process.py).
+    monkeypatch.setattr(pilogs, "read_pi_log", counting)
     cs.case_study(tmp_path)
     assert reads == Counter(f"{t}_events.csv" for t in trials)
 
@@ -679,10 +681,8 @@ def test_speeds_at_06_takes_only_valid_single_motor_folder_names(tmp_path):
     ):
         path = tmp_path / folder / "R1-L-m1_C_b060p040_x.parquet"
         _write_run(path, [("R1-L-m1_C_b060p040_rep01_20261024_100000", hold)])
-    assert cs.speeds_at_06(tmp_path) == {
-        "db17-daisy-left-m1": 0.0,
-        "db17-daisy-right": 0.0,
-    }
+    # db17-daisy-right names no motor id, so it is no mounting.
+    assert cs.speeds_at_06(tmp_path) == {"db17-daisy-left-m1": 0.0}
 
 
 def test_case_study_names_an_e1_trial_without_a_duty_change(tmp_path):
@@ -833,3 +833,302 @@ def test_entry_scripts_report_a_misnamed_folder_without_traceback(
     assert importlib.import_module(script).main(argv) == 1
     err = capsys.readouterr().err
     assert err.startswith("error:") and "db17-daisy-left-m1_old" in err
+
+
+# ------------------------------------------------- review findings, round 4
+
+
+def _write_setup(raw: Path, robot: str, side: str, label: str) -> None:
+    (raw / "setup.toml").write_text(
+        f'robot = "{robot}"\nmotor = "{side}"\nmotor_label = "{label}"\n',
+        encoding="utf-8",
+    )
+
+
+@pytest.fixture
+def broken_quality_root(quality_root):
+    """quality_root plus folders whose name, setup.toml, or kind is bad."""
+    import shutil
+
+    root, run = quality_root
+    raw = root / "raw"
+    # A scratch copy, which the folder-name pattern rejects.
+    shutil.copytree(raw / "db17-r6-right-m10", raw / "db17-r6-right-m10_old")
+    # No setup.toml.
+    _quality_folder(root, "db17-r7-left-m11", ["R7-L-m11_C_x"])
+    (raw / "db17-r7-left-m11" / "setup.toml").rename(raw / "db17-r7-left-m11" / "x")
+    # A motor in the wrong case.
+    bad_setup = _quality_folder(root, "db17-r8-left-m12", ["R8-L-m12_C_x"])
+    _write_setup(bad_setup, "r8", "Left", "m12")
+    # A file, not a folder.
+    (raw / "db17-r9-left-m13.zip").write_bytes(b"PK")
+    # Not tracked yet: setup.toml but no runs.csv.
+    untracked = raw / "db17-r10-right-m14"
+    untracked.mkdir()
+    _write_setup(untracked, "r10", "right", "m14")
+    return root, run
+
+
+_BROKEN = ("db17-r6-right-m10_old", "db17-r7-left-m11", "db17-r8-left-m12")
+
+
+def test_quality_report_reports_each_bad_folder_in_its_own_report(
+    broken_quality_root, capsys
+):
+    root, _ = broken_quality_root
+    assert _quality_report(root) == 0
+    raw = root / "raw"
+    good = (raw / "db17-r6-right-m10" / "quality.md").read_text("utf-8")
+    assert "R6-R-m10_C_b060p040_x" in good and "cannot be assessed" not in good
+    reasons = {
+        "db17-r6-right-m10_old": "is not of the form",
+        "db17-r7-left-m11": "setup.toml",
+        "db17-r8-left-m12": "'Left'",
+    }
+    for name, reason in reasons.items():
+        text = (raw / name / "quality.md").read_text("utf-8")
+        assert "WARNING" in text and reason in text, name
+        assert str(root) not in text
+    err = capsys.readouterr().err
+    assert "Traceback" not in err
+    assert "db17-r9-left-m13.zip" in err
+
+
+def test_quality_report_fails_only_for_a_named_bad_folder(broken_quality_root):
+    root, _ = broken_quality_root
+    assert _quality_report(root, "db17-r6-right-m10") == 0
+    for name in (*_BROKEN, "db17-r9-left-m13.zip"):
+        assert _quality_report(root, name) == 1, name
+
+
+def test_motion_bias_skips_a_folder_with_a_bad_name(broken_quality_root):
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+    from duckiebot_analysis.analysis import quality
+
+    root, _ = broken_quality_root
+    proc = root / "processed" / "db17-r6-right-m10_old"
+    proc.mkdir()
+    row = {
+        "run": "R6-R-m10_C_b060p040_x",
+        "trial": "t",
+        "align": "led",
+        "clock": "run",
+        "offset_run_motion_s": 0.5,
+        "offset_s": 0.1,
+    }
+    pq.write_table(pa.Table.from_pylist([row]), proc / "trials.parquet")
+    assert quality.motion_bias_by_experiment(root / "raw", root / "processed") == {}
+
+
+def test_quality_report_says_a_folder_without_runs_csv_is_not_tracked(
+    broken_quality_root,
+):
+    from duckiebot_analysis.analysis import quality
+    from duckiebot_analysis.analysis import quality_markdown as md
+
+    root, _ = broken_quality_root
+    name = "db17-r10-right-m14"
+    assert _quality_report(root, name) == 0
+    text = (root / "raw" / name / "quality.md").read_text("utf-8")
+    assert "runs.csv" in text and "not tracked" in text
+    fq = quality.assess_folder(
+        root / "raw" / name, root / "processed" / name, motion_bias={}
+    )
+    assert fq.runs == [] and "not tracked yet" in md.readme_row(fq)
+
+
+def test_steady_windows_ignore_a_resent_duty_with_rounding_error():
+    from duckiebot_analysis.analysis import process, sync
+    from duckiebot_analysis.data.pilogs import PiEvents
+
+    values = [0.0, 0.6, 0.6000000000000001, 1.0]
+    t = 2.0 * np.arange(len(values))
+    ev = PiEvents(
+        trial=np.array(["t"] * 4),
+        t_s=t,
+        t_after_s=t,
+        channel=np.array(["motor_left"] * 4),
+        value=np.array(values),
+        event=np.array(["step"] * 4),
+        t_sd_s=np.zeros(4),
+    )
+    clock = sync.ClockFit(0.0, 0.0, np.zeros((2, 2)), 0.0, 4, 6.0, False, np.zeros(4))
+    windows = process._steady_windows(ev, clock, "left", 8.0)
+    s = process.STEADY_SETTLE_S
+    expected = [(s, 2.0), (2.0 + s, 6.0), (6.0 + s, 8.0)]
+    assert [w for pair in windows for w in pair] == pytest.approx(
+        [w for pair in expected for w in pair]
+    )
+
+
+def _level(duty: float, rising: bool, mean: float):
+    from duckiebot_analysis.analysis.step_response import LevelSpeed
+
+    return LevelSpeed(duty, 0.0, 2.0, rising, mean, 0.1, 0 if mean != mean else 100)
+
+
+_NAN = float("nan")
+
+
+def test_a_level_without_speeds_is_not_taken_for_rest():
+    from duckiebot_analysis.analysis.step_response import start_stop_duties
+
+    names = ("StartDuty", "StopDuty")
+    levels = [
+        _level(0.1, True, 0.0),
+        _level(0.2, True, 5.0),
+        _level(0.3, True, 8.0),
+        _level(0.2, False, _NAN),
+        _level(0.1, False, 0.0),
+    ]
+    with pytest.raises(ValueError) as exc:
+        start_stop_duties(levels, 0.5, names)
+    assert "StopDuty" in str(exc.value) and "0.2" in str(exc.value)
+
+
+def test_a_level_without_speeds_before_the_start_is_not_skipped():
+    from duckiebot_analysis.analysis.step_response import start_stop_duties
+
+    levels = [_level(0.1, True, 0.0), _level(0.2, True, _NAN), _level(0.3, True, 8.0)]
+    with pytest.raises(ValueError) as exc:
+        start_stop_duties(levels, 0.5, ("NegStartDuty", "NegStopDuty"))
+    assert "NegStartDuty" in str(exc.value) and "0.2" in str(exc.value)
+
+
+def test_a_level_without_speeds_that_decides_nothing_is_skipped():
+    from duckiebot_analysis.analysis.step_response import start_stop_duties
+
+    levels = [
+        _level(0.1, True, 0.0),
+        _level(0.2, True, 5.0),
+        _level(0.3, True, _NAN),
+        _level(0.2, False, 4.0),
+        _level(0.1, False, 0.0),
+    ]
+    assert start_stop_duties(levels, 0.5) == (0.2, 0.1)
+
+
+def _move_log(root: Path, trial: str, sub: str) -> None:
+    """Move a trial's Pi log into pi/<sub>/ and point runs.csv at it."""
+    raw = root / "raw" / cs.MOTOR
+    (raw / "pi" / sub).mkdir(exist_ok=True)
+    name = f"{trial}_events.csv"
+    (raw / "pi" / name).rename(raw / "pi" / sub / name)
+    runs = raw / "runs.csv"
+    text = runs.read_text("utf-8").replace(f"pi/{name}", f"pi/{sub}/{name}")
+    runs.write_text(text, "utf-8")
+
+
+def test_case_study_reads_the_pi_log_that_runs_csv_names(tmp_path):
+    from synthetic_case_study import write_case_study_data
+
+    trials = write_case_study_data(tmp_path, cs.MOTOR, cs.LABEL)
+    _move_log(tmp_path, trials[0], "day1")
+    result = cs.case_study(tmp_path)
+    assert result.e1.trial == trials[0]
+
+
+def test_case_study_names_runs_csv_pi_log_when_a_log_is_missing(tmp_path):
+    from synthetic_case_study import write_case_study_data
+
+    trials = write_case_study_data(tmp_path, cs.MOTOR, cs.LABEL)
+    e2 = next(t for t in trials if "_C_" in t)
+    (tmp_path / "raw" / cs.MOTOR / "pi" / f"{e2}_events.csv").unlink()
+    with pytest.raises(ValueError) as exc:
+        cs.case_study(tmp_path)
+    message = str(exc.value)
+    assert e2 in message and "runs.csv" in message and "pi_log" in message
+
+
+def test_n_trials_led_counts_script_led_trials(synthetic_case_study):
+    import dataclasses
+
+    from duckiebot_analysis.analysis.case_study_macros import case_study_macros
+
+    trials = dict(synthetic_case_study.trials)
+    first = sorted(trials)[0]
+    trials[first] = trials[first] | {"sync": "script+led"}
+    macros = case_study_macros(dataclasses.replace(synthetic_case_study, trials=trials))
+    assert macros["NTrialsLed"] == str(len(trials))
+
+
+def test_process_folder_drops_runs_no_longer_in_runs_csv(tmp_path, monkeypatch, capsys):
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+    from duckiebot_analysis.analysis import process
+
+    kept, stale, new = "R5-L-m9_C_kept", "R5-L-m9_C_stale", "R5-L-m9_C_new"
+    raw = _quality_folder(tmp_path, "db17-r5-left-m9", [kept, new])
+    out = tmp_path / "processed" / raw.name
+    out.mkdir(parents=True)
+    for run in (kept, stale):
+        pq.write_table(pa.table({"t": [0.0]}), out / f"{run}.parquet")
+    counts = {"n_frames": 1, "n_usable": 1, "n_dropped": 0}
+
+    def rec(run: str, trial: str) -> dict:
+        return {"run": run, "trial": trial} | counts
+
+    pq.write_table(
+        process.records_table([rec(kept, "a"), rec(stale, "b")]),
+        out / "trials.parquet",
+    )
+
+    def fake_run(folder, run, params=None):
+        meta = {"sync_per_trial": {}, "k": 1.0, "notes": []}
+        return pa.table({"t": [0.0]}), [rec(run, "c")], meta
+
+    monkeypatch.setattr(process, "process_run", fake_run)
+    process.process_folder(raw, out, runs=[new], log=lambda _: None)
+    runs = sorted(pq.read_table(out / "trials.parquet").column("run").to_pylist())
+    assert runs == [kept, new]
+    assert (out / f"{stale}.parquet").is_file()  # reported, not deleted
+    err = capsys.readouterr().err
+    assert f"{stale}.parquet" in err and "stale" in err
+
+
+def test_case_study_names_omega_min_when_no_clip_has_rest_frames(tmp_path):
+    import pyarrow.compute as pc
+    import pyarrow.parquet as pq
+    from synthetic_case_study import write_case_study_data
+
+    write_case_study_data(tmp_path, cs.MOTOR, cs.LABEL)
+    for path in (tmp_path / "processed" / cs.MOTOR).glob("*_x.parquet"):
+        table = pq.read_table(path)
+        early = pc.less(table["t_trial_s"], 2.5)
+        omega = pc.if_else(early, float("nan"), table["omega_rad_s"])
+        i = table.schema.get_field_index("omega_rad_s")
+        pq.write_table(table.set_column(i, "omega_rad_s", omega), path)
+    with pytest.raises(ValueError) as exc:
+        cs.case_study(tmp_path)
+    message = str(exc.value)
+    assert "OmegaMin" in message and "rest" in message and "first command" in message
+
+
+def test_pilogs_keeps_its_public_names():
+    from duckiebot_analysis.data import pilogs
+
+    for name in (
+        "CHANNELS",
+        "MOTOR_CHANNELS",
+        "NOMINAL_TIMING_SD_S",
+        "PiEvents",
+        "TrialId",
+        "detect_format",
+        "motor_position",
+        "parse_pi_log",
+        "parse_trial_id",
+        "read_pi_log",
+        "reconstruct_schedule",
+        "six_motor_schedule",
+        "write_pi_log",
+    ):
+        assert hasattr(pilogs, name), name
+
+
+def test_speeds_at_06_counts_only_mountings_with_a_motor_id(tmp_path):
+    hold = [0.0] * 240 + [0.6] * 480 + [1.0] * 240
+    for folder in ("db17-daisy-right", "db17-r5-left-m9"):
+        path = tmp_path / folder / "R5-L-m9_C_b060p040_x.parquet"
+        _write_run(path, [("R5-L-m9_C_b060p040_rep01_20261024_100000", hold)])
+    assert cs.speeds_at_06(tmp_path) == {"db17-r5-left-m9": 0.0}

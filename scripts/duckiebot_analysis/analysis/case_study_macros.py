@@ -271,7 +271,8 @@ def case_study_macros(cs: CaseStudy) -> dict[str, str]:
         "DownUpRatio": fmt(down06.fit.tau_s / up10.fit_delay.tau_s, 1),
         "StartStopRatio": fmt(up06.fit.tau_s / down0.fit.tau_s, 1),
         "NTrials": str(len(rows)),
-        "NTrialsLed": str(sum(r["sync"] == "log+led" for r in rows)),
+        # Both LED levels, as check_led_sync accepts them.
+        "NTrialsLed": str(sum(r["sync"] in ("log+led", "script+led") for r in rows)),
         "DroppedAll": fmt(_dropped(cs, list(cs.trials), "DroppedAll"), 1),
         # E1 is the forward and the backward sweep, both reported.
         "DroppedEOne": fmt(

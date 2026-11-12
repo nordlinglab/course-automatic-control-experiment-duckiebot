@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import sys
 from collections.abc import Callable, Sequence
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
@@ -202,6 +203,38 @@ def _schedules(
         Logged events per trial, reconstructed events per trial, and notes on
         sources that are missing or unreadable.
     """
+    logged, notes = logged_events(folder, run, motor)
+    scripted: dict[str, pilogs.PiEvents] = {}
+    for trial in run.trials:
+        record = trials.get(trial)
+        if record is None:
+            notes.append(f"trial {trial} is not in trials.csv")
+            continue
+        try:
+            scripted[trial] = pilogs.reconstruct_schedule(_trial_row(record))
+        except (ValueError, KeyError) as exc:
+            notes.append(f"trial {trial} has no reconstructable schedule: {exc}")
+    return logged, scripted, notes
+
+
+def logged_events(
+    folder: Path, run: layout.RunRecord, motor: str
+) -> tuple[dict[str, pilogs.PiEvents], list[str]]:
+    """Read the Pi logs that the run's pi_log in runs.csv lists (§7).
+
+    Each path is relative to the motor folder; paths are separated by ``;``.
+    A log belongs to the trial its name gives; a single log of a single-trial
+    run belongs to that trial whatever its name.
+
+    Args:
+        folder: The motor folder.
+        run: The run's row of runs.csv.
+        motor: ``left``, ``right``, or ``both``, from setup.toml.
+
+    Returns:
+        The logged events per trial, and a note per log that is missing or
+        unreadable.
+    """
     notes: list[str] = []
     logged: dict[str, pilogs.PiEvents] = {}
     paths = [p.strip() for p in (run.pi_log or "").split(";") if p.strip()]
@@ -220,17 +253,7 @@ def _schedules(
             # A single log of a single trial belongs to it whatever its name.
             trial = run.trials[0]
         logged[trial] = events
-    scripted: dict[str, pilogs.PiEvents] = {}
-    for trial in run.trials:
-        record = trials.get(trial)
-        if record is None:
-            notes.append(f"trial {trial} is not in trials.csv")
-            continue
-        try:
-            scripted[trial] = pilogs.reconstruct_schedule(_trial_row(record))
-        except (ValueError, KeyError) as exc:
-            notes.append(f"trial {trial} has no reconstructable schedule: {exc}")
-    return logged, scripted, notes
+    return logged, notes
 
 
 def _led_grid(frames: dict[str, np.ndarray]) -> FloatArray | None:
@@ -346,8 +369,13 @@ def _steady_windows(
     if not m.any():
         return ()
     tau = (ev.t_s[m] + ev.t_after_s[m]) / 2
-    value = ev.value[m]
-    keep = np.r_[True, value[1:] != value[:-1]]
+    # A duty within DUTY_TOL of the one before, such as a re-sent 0.6 logged as
+    # 0.6000000000000001, is no change, as in case_study.command_changes.
+    keep = np.zeros(tau.size, dtype=bool)
+    prev = np.nan
+    for k, v in enumerate(ev.value[m]):
+        if not abs(v - prev) <= pilogs.DUTY_TOL:
+            keep[k], prev = True, v
     times, _ = clock.to_video(tau[keep])
     ends = np.r_[times[1:], span_end]
     return tuple(
@@ -780,6 +808,10 @@ def records_table(records: Sequence[dict[str, Any]]) -> pa.Table:
     return pa.Table.from_pylist(list(records), schema=TRIALS_SCHEMA)
 
 
+def _to_stderr(message: str) -> None:
+    print(message, file=sys.stderr)
+
+
 def process_folder(
     folder: str | Path,
     out_folder: str | Path,
@@ -787,11 +819,15 @@ def process_folder(
     *,
     runs: Sequence[str] | None = None,
     log: Callable[[str], None] = print,
+    warn: Callable[[str], None] = _to_stderr,
 ) -> list[str]:
     """Process the runs of a motor folder and write §11.1 and §11.2.
 
     A run without a frame table is skipped with a message. When only some runs
-    are processed, the rows of ``trials.parquet`` for the other runs are kept.
+    are processed, the rows of ``trials.parquet`` for the other runs are kept,
+    as long as runs.csv lists the run. A ``<run>.parquet`` of a run no longer in
+    runs.csv is stale: it is reported through ``warn`` and left in place, and
+    its rows are dropped from ``trials.parquet``.
 
     Args:
         folder: The motor folder ``data/raw/db17-<robot>-<motor>-<id>``.
@@ -799,6 +835,7 @@ def process_folder(
         params: Processing parameters.
         runs: Runs to process; default every run in ``runs.csv``.
         log: Receives one message per run.
+        warn: Receives one message per stale processed run (default: stderr).
 
     Returns:
         The runs that were processed.
@@ -845,13 +882,23 @@ def process_folder(
     if not done:
         log("no run had a frame table; nothing written")
         return done
+    listed = set(available)
+    for path in sorted(out.glob("*.parquet")):
+        if path.name != "trials.parquet" and path.stem not in listed:
+            warn(
+                f"warning: stale {path.name} in {out}: its run is not in "
+                f"{folder / 'runs.csv'}, so it is left out of trials.parquet"
+            )
     trials_path = out / "trials.parquet"
     if trials_path.exists():
         kept = [
             r
             for r in pq.read_table(trials_path).to_pylist()
-            # A skipped run keeps its earlier rows, matching its <run>.parquet.
-            if r["run"] not in done and (out / f"{r['run']}.parquet").exists()
+            # A skipped run keeps its earlier rows, matching its <run>.parquet,
+            # while runs.csv lists it.
+            if r["run"] not in done
+            and r["run"] in listed
+            and (out / f"{r['run']}.parquet").exists()
         ]
         records = kept + records
     pq.write_table(records_table(records), trials_path, compression="zstd")
@@ -863,6 +910,7 @@ __all__ = [
     "TRIALS_SCHEMA",
     "ProcessParams",
     "RunSkippedError",
+    "logged_events",
     "process_folder",
     "process_run",
     "records_table",

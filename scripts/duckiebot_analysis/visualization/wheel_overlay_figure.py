@@ -336,6 +336,8 @@ def fig_wheel_overlay(path: Path, folder: Path = WHEEL_FRAMES_DIR) -> None:
         picks = list(csv.DictReader(fh))
     by_kind = {row["kind"]: row for row in picks}
     crop = meta["crop"]
+    # The panels show the crop turned upright (rotation -90, check_rotation),
+    # so a panel's height over its width is the crop's width over its height.
     ratio = (crop["x1"] - crop["x0"]) / (crop["y1"] - crop["y0"])
     panel_height = TEXT_WIDTH_IN / 2 * ratio
     fig = plt.figure(figsize=(TEXT_WIDTH_IN, 2 * panel_height + 2.0))

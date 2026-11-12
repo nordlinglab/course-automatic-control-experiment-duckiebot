@@ -33,6 +33,7 @@ import numpy.typing as npt
 import pyarrow.parquet as pq
 
 from duckiebot_analysis.analysis.derivatives import W_OMEGA
+from duckiebot_analysis.analysis.process import logged_events
 from duckiebot_analysis.analysis.six_motor import hold_segments, hold_speed
 from duckiebot_analysis.analysis.step_response import (
     FirstOrderFit,
@@ -46,8 +47,13 @@ from duckiebot_analysis.analysis.step_response import (
     start_stop_duties,
     step_info,
 )
-from duckiebot_analysis.data.layout import is_motor_folder_name, parse_motor_folder
-from duckiebot_analysis.data.pilogs import PiEvents, read_pi_log
+from duckiebot_analysis.data.layout import (
+    is_motor_folder_name,
+    motor_ids,
+    parse_motor_folder,
+    read_runs,
+)
+from duckiebot_analysis.data.pilogs import DUTY_TOL, PiEvents
 
 FloatArray = npt.NDArray[np.float64]
 # The motor folder and the start of its run names (label), as in the article;
@@ -55,9 +61,6 @@ FloatArray = npt.NDArray[np.float64]
 MOTOR = "db17-cherry-left-m5"
 LABEL = "R3-L"
 DT = 1 / 240  # frame interval of the slow-motion video
-# Two duties are equal when they differ by less than half the 1e-4 step to
-# which the Pi log writes them (§7), whatever rounding error computed them.
-DUTY_TOL = 5e-5
 # Share of the speeds of a wheel at rest, both signs together, that exceed the
 # rest threshold omega_min: the risk that noise alone makes a frame at rest
 # count as turning.
@@ -234,9 +237,14 @@ def call_duration(ev: PiEvents, channel: str) -> float:
 
 
 def _one_wheel(name: str) -> bool:
-    """Return whether name is a valid left or right motor folder name."""
+    """Return whether name is a valid left or right motor folder with a motor id.
+
+    An older name without the id, such as db17-daisy-right, does not say which
+    motor was mounted, so it is no mounting.
+    """
     try:
-        return parse_motor_folder(name)[1] in ("left", "right")
+        _, side = parse_motor_folder(name)
+        return side in ("left", "right") and len(motor_ids(name)) == 1
     except ValueError:
         return False
 
@@ -253,7 +261,8 @@ def speeds_at_06(processed: Path) -> dict[str, float]:
     groups apart. The speed is the mean over the last FINAL_S of the first
     hold at 0.6. A folder whose name
     layout.parse_motor_folder rejects, such as the copy db17-daisy-left-m1_old,
-    and a both folder, which drives two wheels, are left out.
+    a both folder, which drives two wheels, and an older folder without a motor
+    id, such as db17-daisy-right, are left out.
     """
     out: dict[str, float] = {}
     if not processed.is_dir():
@@ -491,6 +500,43 @@ def _one_trial(traces: dict[str, Trace], prefix: str) -> Trace:
     return traces[found[0]]
 
 
+def _pi_logs(
+    raw: Path, needed: dict[str, list[str]], motor: str
+) -> dict[str, PiEvents]:
+    """Return the Pi log of each needed trial, per run, as the processing reads it.
+
+    The logs are those the run's pi_log in runs.csv lists, read by
+    process.logged_events, so that any log scripts/process_raw.py accepts
+    works here.
+
+    Args:
+        raw: The motor folder data/raw/<folder>.
+        needed: The trials needed per run name.
+        motor: ``left`` or ``right``.
+
+    Raises:
+        ValueError: If a run is not in runs.csv or a needed trial has no
+            readable log, naming runs.csv pi_log.
+    """
+    runs = {r.run: r for r in read_runs(raw)}
+    out: dict[str, PiEvents] = {}
+    for run, trials in needed.items():
+        if run not in runs:
+            raise ValueError(
+                f"run {run} is processed but not in {raw / 'runs.csv'}; add its row"
+            )
+        logged, notes = logged_events(raw, runs[run], motor)
+        for trial in trials:
+            if trial not in logged:
+                why = "; ".join(notes) or "it lists no log of this trial"
+                raise ValueError(
+                    f"{trial}: no readable Pi log; check pi_log of run {run} in "
+                    f"{raw / 'runs.csv'} ({why})"
+                )
+            out[trial] = logged[trial]
+    return out
+
+
 def case_study(data_root: Path, config: CaseStudyConfig = ARTICLE) -> CaseStudy:
     """Compute every result of the case study from data/processed and data/raw.
 
@@ -522,10 +568,11 @@ def case_study(data_root: Path, config: CaseStudyConfig = ARTICLE) -> CaseStudy:
             "labelled otherwise (check --label)"
         )
     check_led_sync(trials, [e1.trial, neg.trial, *sorted(e2)])
-    logs = {
-        n: read_pi_log(raw / "pi" / f"{n}_events.csv")
-        for n in (e1.trial, neg.trial, *e2)
-    }
+    logs = _pi_logs(
+        raw,
+        {e1_path.stem: [e1.trial, neg.trial], e2_path.stem: sorted(e2)},
+        config.channel.removeprefix("motor_"),
+    )
     e2_changes = _e2_changes(logs, e2, trials, config.channel)
     first_cmd = {n: c[0] for n, c in e2_changes.items()}
     for tr in (e1, neg):
@@ -539,14 +586,23 @@ def case_study(data_root: Path, config: CaseStudyConfig = ARTICLE) -> CaseStudy:
             )
         first_cmd[tr.trial] = changes[0][0]
     traces = {e1.trial: e1, neg.trial: neg} | e2
-    noise = np.concatenate(
-        [rest_speeds(traces[n], first_cmd[n]) for n in sorted(first_cmd)]
-    )
+    rest = {n: rest_speeds(traces[n], first_cmd[n]) for n in sorted(first_cmd)}
+    noise = np.concatenate(list(rest.values()))
+    if noise.size == 0:
+        raise ValueError(
+            "cannot compute OmegaMin: no clip has a finite speed at rest before "
+            f"its first command ({', '.join(rest)}); each clip needs at least "
+            f"{W_OMEGA + 0.05:.2f} s (W_OMEGA = {W_OMEGA:.3f} s plus about 0.05 s) "
+            "of rest with the marker visible between the trial start and the "
+            "first command"
+        )
     omega_min = rest_threshold(noise)
     lv = level_speeds(e1.t, e1.omega, e1.u_cmd, LEVEL_LAST_S, min_hold_s=1.5)
-    start, stop = start_stop_duties(lv, omega_min)
+    start, stop = start_stop_duties(lv, omega_min, ("StartDuty", "StopDuty"))
     lv_neg = level_speeds(neg.t, neg.omega, neg.u_cmd, LEVEL_LAST_S, min_hold_s=1.5)
-    neg_start, neg_stop = start_stop_duties(lv_neg, omega_min)
+    neg_start, neg_stop = start_stop_duties(
+        lv_neg, omega_min, ("NegStartDuty", "NegStopDuty")
+    )
     return CaseStudy(
         e1=e1,
         e1_levels=lv,

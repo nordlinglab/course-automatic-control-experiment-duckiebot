@@ -25,6 +25,10 @@ NOISE_SD = 0.05
 FORWARD = (0.1, 0.2, 0.3, 0.2, 0.1)  # E1 levels; the wheel stops at the last
 E2 = ((0.0, 2.0), (0.6, 3.0), (1.0, 3.0), (0.6, 3.0), (0.0, 2.0))
 LOG_HEADER = "t_s,t_monotonic_s,event,label,requested_duty,written_throttle,led\n"
+RUNS_HEADER = (
+    "run,video_file,video_sha256,video_bytes,duration_s,resolution,fps_nominal,"
+    "mode,experiment,sync,pi_log,trials,notes\n"
+)
 
 
 def _schedule(levels: tuple[float, ...], rest_s: float = 1.0, hold_s: float = 2.0):
@@ -83,7 +87,10 @@ def write_case_study_data(
     e2_prefix: str | None = None,
     duty_text=lambda u: f"{u:+.4f}",
 ) -> list[str]:
-    """Write data/raw/<motor>/pi and data/processed/<motor> under root.
+    """Write data/raw/<motor>/runs.csv, its pi/, and data/processed/<motor>.
+
+    runs.csv lists each run with its Pi logs (pi_log) and trials, as
+    scripts/track_video.py writes it.
 
     Args:
         root: The data/ folder to write.
@@ -118,8 +125,16 @@ def write_case_study_data(
             (f"{e2_prefix}{k:02d}_20261024_2120{k:02d}", E2) for k in (1, 2)
         ],
     }
-    rows, names = [], []
+    rows, names, run_rows = [], [], []
     for run, trials in runs.items():
+        stem = run.removesuffix(".parquet")
+        run_rows.append(
+            f"{stem},{stem}.mp4,{'0' * 64},1,1,1280x720,240,stand,C,log+led,"
+            + ";".join(f"pi/{name}_events.csv" for name, _ in trials)
+            + ","
+            + ";".join(name for name, _ in trials)
+            + ",\n"
+        )
         cols: dict[str, list] = {}
         for name, schedule in trials:
             text, times = _log(schedule, duty_text, event)
@@ -145,4 +160,5 @@ def write_case_study_data(
         )
         pq.write_table(table, proc / run)
     pq.write_table(pa.Table.from_pylist(rows), proc / "trials.parquet")
+    (raw.parent / "runs.csv").write_text(RUNS_HEADER + "".join(run_rows), "utf-8")
     return names

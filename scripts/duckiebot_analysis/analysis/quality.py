@@ -84,6 +84,12 @@ THRESHOLDS = Thresholds()
 
 # A folder warning: its runs.csv cannot be read, so it has no runs.
 BAD_RUNS_CSV = "bad-runs-csv"
+# A folder whose name or setup.toml cannot be read, or that is no folder.
+BAD_FOLDER = "bad-folder"
+NOT_TRACKED = "not-tracked"
+# Folder warnings that make a folder bad: it is left out of the statistics
+# over all folders, and naming it on the command line fails the report.
+BAD_CODES = (BAD_RUNS_CSV, BAD_FOLDER)
 
 # Warnings that a new recording with the LED in view would remove.
 LED_CODES = (
@@ -519,16 +525,17 @@ def motion_bias_by_experiment(raw_root: Path, processed_root: Path) -> dict[str,
 
     Over every trial whose clock is the run's LED clock and that the run's
     motion clock also places, by the experiment of its run in runs.csv.
-    A folder whose runs.csv cannot be read is skipped; its own report says why
-    (`assess_folder`).
+    A folder whose name, setup.toml, or runs.csv cannot be read is skipped;
+    its own report says why (`assess_folder`).
     """
     diffs: dict[str, list[float]] = defaultdict(list)
     for raw in sorted(
         p for p in raw_root.iterdir() if layout.is_motor_folder_name(p.name)
     ):
         try:
+            _read_folder(raw)
             runs = layout.read_runs(raw)
-        except ValueError:
+        except (OSError, ValueError):
             continue
         experiments = {r.run: r.experiment for r in runs}
         for rec in _trials_table(processed_root / raw.name):
@@ -537,6 +544,31 @@ def motion_bias_by_experiment(raw_root: Path, processed_root: Path) -> dict[str,
                 if motion is not None and used is not None:
                     diffs[experiments.get(rec["run"]) or ""].append(abs(motion - used))
     return {e: float(np.median(v)) for e, v in diffs.items() if v}
+
+
+def _read_folder(raw: Path) -> tuple[layout.Setup, tuple[str, ...]]:
+    """Return the setup and the motor ids of a motor folder.
+
+    Raises:
+        OSError: If the folder or its setup.toml cannot be read, such as
+            FileNotFoundError or NotADirectoryError.
+        ValueError: If the name or setup.toml is invalid.
+    """
+    if not raw.is_dir():
+        raise NotADirectoryError(f"{raw.name} is not a folder")
+    return layout.read_setup(raw), layout.motor_ids(raw)
+
+
+def _no_path(exc: Exception, raw: Path) -> str:
+    """The message of exc without the paths of this machine.
+
+    quality.md may be committed, so it names no path of this machine.
+    """
+    if isinstance(exc, FileNotFoundError) and exc.filename:
+        text = f"{Path(exc.filename).name} is missing"
+    else:
+        text = str(exc)
+    return text.replace(str(raw) + "/", "").replace(str(raw), raw.name).rstrip(".")
 
 
 def _folder_issues(raw: Path, setup: layout.Setup) -> list[Issue]:
@@ -624,21 +656,51 @@ def assess_folder(
         motion_bias: From `motion_bias_by_experiment`.
         th: Thresholds.
 
-    A runs.csv that cannot be read gives a folder warning ``bad-runs-csv``
-    and no runs.
+    A folder whose name or setup.toml cannot be read, or that is no folder,
+    gives a folder warning ``bad-folder``; a missing runs.csv a folder
+    warning ``not-tracked``; and a runs.csv that cannot be read a folder
+    warning ``bad-runs-csv``. Each comes with no runs, so that one group's
+    folder does not stop the reports of the others.
     """
-    setup = layout.read_setup(raw)
-    ids = layout.motor_ids(raw)
-    fq = FolderQuality(
-        raw.name,
-        setup.robot,
-        setup.motor,
-        ", ".join(ids) if ids else setup.motor_label,
-        _folder_issues(raw, setup),
-    )
+    try:
+        setup, ids = _read_folder(raw)
+        fq = FolderQuality(
+            raw.name,
+            setup.robot,
+            setup.motor,
+            ", ".join(ids) if ids else setup.motor_label,
+            _folder_issues(raw, setup),
+        )
+    except (OSError, ValueError) as exc:
+        return FolderQuality(
+            raw.name,
+            "",
+            "",
+            None,
+            [
+                Issue(
+                    "warning",
+                    BAD_FOLDER,
+                    "The folder cannot be assessed, so none of its runs is: "
+                    + _no_path(exc, raw)
+                    + ".",
+                )
+            ],
+        )
+    if not (raw / "runs.csv").exists():
+        fq.issues.append(
+            Issue(
+                "warning",
+                NOT_TRACKED,
+                "runs.csv is missing, so the folder is not tracked yet: run "
+                "scripts/track_video.py on each video (README.md, From video to "
+                "figures).",
+            )
+        )
+        return fq
     try:
         runs = layout.read_runs(raw)
-    except ValueError as exc:
+    except (OSError, ValueError) as exc:
         # One group's bad runs.csv, such as a run listed twice after
         # re-tracking, must not stop the reports of the other folders.
         fq.issues.append(
@@ -646,9 +708,7 @@ def assess_folder(
                 "warning",
                 BAD_RUNS_CSV,
                 "runs.csv cannot be read, so no run of the folder is assessed: "
-                # quality.md may be committed, so it names no path of this
-                # machine.
-                + str(exc).replace(str(raw / "runs.csv"), "runs.csv").rstrip(".")
+                + _no_path(exc, raw)
                 + ".",
             )
         )
@@ -747,7 +807,10 @@ def finish(folders: Sequence[FolderQuality]) -> None:
 
 
 __all__ = [
+    "BAD_CODES",
+    "BAD_FOLDER",
     "BAD_RUNS_CSV",
+    "NOT_TRACKED",
     "THRESHOLDS",
     "FolderQuality",
     "Issue",
