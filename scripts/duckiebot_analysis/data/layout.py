@@ -224,8 +224,8 @@ def motor_ids(folder: str | Path) -> tuple[str, ...]:
     return _parse_folder(folder)[2]
 
 
-# Extensions of the videos a phone records, compared in lower case.
-VIDEO_EXTENSIONS = (".mp4", ".mov", ".m4v")
+# Extensions of the videos a phone or camera records, compared in lower case.
+VIDEO_EXTENSIONS = (".mp4", ".mov", ".m4v", ".avi", ".mkv", ".3gp", ".webm")
 
 
 def strip_video_extensions(name: str) -> str:
@@ -244,8 +244,10 @@ def strip_video_extensions(name: str) -> str:
 def run_of_video(video: str | Path) -> str:
     """Return the run identifier of a video file: its name without extensions.
 
-    The last extension is dropped whatever it is, as Path.stem does, and then
-    every video extension before it, as :func:`strip_video_extensions`.
+    The one rule for track_video.py, given the file, and start_motor_folder.py
+    --run, given its name. The last extension is dropped whatever it is, as
+    Path.stem does, and then every video extension before it, as
+    :func:`strip_video_extensions`.
     """
     return strip_video_extensions(Path(video).stem)
 

@@ -18,12 +18,16 @@ Run from the repository root: python -m pytest scripts/tests
 """
 
 import csv
+import io
 import json
 import subprocess
 import sys
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 
 import pytest
+from hypothesis import HealthCheck, given, settings
+from hypothesis import strategies as st
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -572,3 +576,63 @@ def test_a_setup_toml_not_in_utf8_is_named_and_left_unchanged(folder, with_mappi
     assert setup.read_bytes() == data
     # The other files are still created.
     assert (folder / "runs.csv").is_file() and (folder / "README.md").is_file()
+
+
+# Known video extensions in any case, and others a file name may end in.
+_ANY_EXTS = st.sampled_from(
+    [".mp4", ".MOV", ".m4v", ".AVI", ".avi", ".mkv", ".MKV", ".3gp", ".webm"]
+    + [".notes", ".txt", ".x1", ".Mp4"]
+)
+
+
+@settings(
+    database=None,
+    max_examples=60,
+    deadline=None,
+    suppress_health_check=[HealthCheck.function_scoped_fixture],
+)
+@given(
+    st.from_regex(r"[A-Za-z0-9][A-Za-z0-9_-]{0,12}", fullmatch=True),
+    st.lists(_ANY_EXTS, max_size=3),
+)
+def test_track_video_and_run_give_any_video_name_the_same_run(
+    tmp_path_factory, stem, exts
+):
+    import start_motor_folder
+    import track_video
+
+    video = stem + "".join(exts)
+    folder = tmp_path_factory.mktemp("d") / "raw" / "db17-r5-left-m9"
+    out, err = io.StringIO(), io.StringIO()
+    with redirect_stdout(out), redirect_stderr(err):
+        assert start_motor_folder.main([str(folder)]) == 0
+        _write_meta(folder, _meta(_E2.format(1, 1), "2026-11-05T12:01:00", _SCHEDULE_B))
+        argv = [str(folder), "--trials", "--run", video, "--match", "_C_"]
+        assert start_motor_folder.main(argv) == 0
+    run = _rows(folder)[0]["run"]
+    assert run
+    # track_video.py stops at the frame table of the same run, naming it.
+    frames = folder / "frames" / f"{run}.parquet"
+    frames.write_bytes(b"")
+    argv = [str(folder / video), "--folder", str(folder), "--mode", "stand"]
+    with redirect_stdout(out), redirect_stderr(err):
+        assert track_video.main([*argv, "--camera", "c"]) == 1
+    assert str(frames) in err.getvalue()
+
+
+@pytest.mark.parametrize(
+    ("video", "run"),
+    [
+        ("V1.avi", "V1"),
+        ("V1.AVI", "V1"),
+        ("V1.avi.mp4", "V1"),
+        ("V1.mp4.mkv", "V1"),
+        ("V1.3gp", "V1"),
+        ("V1.webm.MOV", "V1"),
+        ("V1.notes.mp4", "V1.notes"),
+    ],
+)
+def test_run_and_track_video_strip_every_known_video_extension(video, run):
+    from duckiebot_analysis.data.layout import run_of_video
+
+    assert run_of_video(video) == run

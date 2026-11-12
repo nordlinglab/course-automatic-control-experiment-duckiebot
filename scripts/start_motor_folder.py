@@ -53,7 +53,7 @@ from duckiebot_analysis.data.layout import (
     TRIALS_COLUMNS,
     motor_ids,
     parse_motor_folder,
-    strip_video_extensions,
+    run_of_video,
 )
 
 COMMAND = "python scripts/start_motor_folder.py"
@@ -486,8 +486,11 @@ def main(argv: list[str] | None = None) -> int:
         robot, position, labels = check_folder(args.folder)
         if args.trials:
             run = args.run
-            if run is not None and strip_video_extensions(run) != run:
-                run = strip_video_extensions(run)
+            # One video, one run: the rule of track_video.py.
+            if run is not None and run_of_video(run) != run:
+                run = run_of_video(run)
+                if not run:
+                    raise UserError(f"--run {args.run!r} names no video")
                 print(
                     f"note: --run is the video name without its extension; "
                     f"using {run} for {args.run}"
