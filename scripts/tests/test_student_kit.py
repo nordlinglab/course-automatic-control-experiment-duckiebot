@@ -1248,6 +1248,18 @@ def test_figure_methods_reads_no_data_and_writes_no_macros(tmp_path, capsys):
     assert len([s for s in out.splitlines() if s.startswith("fig-methods.pdf: ")]) == 1
 
 
+@pytest.mark.parametrize(
+    "folder", ["db17-daisy-left-m1", "db17-r5-left", "db17-r5-both-m9-m10", "x/y"]
+)
+def test_figure_methods_needs_no_folder_or_label(tmp_path, capsys, folder):
+    import plot_case_study_csme2026 as script
+
+    figures = tmp_path / "figures"
+    argv = ["--folder", folder, "--figures", str(figures), "--figure", "methods"]
+    assert script.main(argv) == 0, capsys.readouterr().err
+    assert _pdfs(figures) == ["fig-methods.pdf"]
+
+
 def test_figure_option_names_the_p_question_of_the_figures_that_test_one(
     synthetic_data, tmp_path, capsys
 ):

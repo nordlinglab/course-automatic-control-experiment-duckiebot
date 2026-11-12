@@ -28,7 +28,8 @@ each figure before drawing the next; the last two are optional:
 Without --figure, all seven figures are drawn, as for the article.
 
 fig-methods.pdf, the schematic of S3-S5 of the supplement, uses synthetic data
-only, so --figure methods reads no data and writes no results.tex;
+only, so --figure methods reads no data, needs no motor folder or label, and
+writes no results.tex;
 fig-rest-noise.pdf shows the speed noise at rest that sets omega_min;
 fig-wheel-overlay.pdf shows the tracker's output on the frames that
 scripts/select_wheel_frames.py picked from a video; until that script has
@@ -222,11 +223,15 @@ def main(argv: list[str] | None = None) -> int:
     with --debug. Both return 1.
     """
     args = parse_args(argv)
-    try:
-        config = resolve_config(args)
-    except ValueError as exc:
-        print(f"error: {exc}", file=sys.stderr)
-        return 1
+    names = list(FIGURES) if args.figure is None else [args.figure]
+    config = None
+    # A figure of synthetic data only needs no motor folder or label.
+    if not all(n in NO_DATA for n in names):
+        try:
+            config = resolve_config(args)
+        except ValueError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 1
     try:
         return _run(args, config)
     except Exception as exc:
@@ -236,18 +241,21 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
 
-def _run(args: argparse.Namespace, config: CaseStudyConfig) -> int:
-    """Compute the results and write the figures and the macro file."""
+def _run(args: argparse.Namespace, config: CaseStudyConfig | None) -> int:
+    """Compute the results and write the figures and the macro file.
+
+    Without a config, only the figures that read no data are drawn.
+    """
     figures = args.figures
     macros = args.macros if args.macros is not None else figures / "results.tex"
-    command = f"{COMMAND} --folder {config.folder} --label {config.label}"
     names = list(FIGURES) if args.figure is None else [args.figure]
     cs = None
-    if all(n in NO_DATA for n in names):
+    if config is None:
         figures.mkdir(parents=True, exist_ok=True)
         drawn: list[Path] = []
         tail: list[Path] = []
     else:
+        command = f"{COMMAND} --folder {config.folder} --label {config.label}"
         try:
             cs = case_study(args.data, config)
             # make_all computes every reported number before it writes a file.
