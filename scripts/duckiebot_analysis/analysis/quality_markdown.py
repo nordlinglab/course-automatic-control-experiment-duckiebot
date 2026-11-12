@@ -30,6 +30,7 @@ README_END = "<!-- quality-summary: end -->"
 # Short labels for the summary table of a README.
 SHORT = {
     "bad-runs-csv": "runs.csv unreadable",
+    "bad-folder": "folder unreadable",
     "not-tracked": "not tracked yet",
     "not-processed": "not processed yet",
     "not-filmed": "trials outside the video",
@@ -147,8 +148,12 @@ def render_report(
         "",
         f"# Data quality of `{fq.folder}`",
         "",
-        f"Motor {fq.motor_label or '(no identifier)'}, tested in the {fq.motor} "
-        f"position of {fq.robot.capitalize()}.",
+        (
+            f"Motor {fq.motor_label or '(no identifier)'}, tested in the {fq.motor} "
+            f"position of {fq.robot.capitalize()}."
+            if fq.robot
+            else "The motor and the robot are unknown, as the folder cannot be read."
+        ),
         f"Of {len(fq.runs)} runs with {len(trials)} trials, {len(warned)} have "
         "warnings.",
         "A warning means that the data should not be used for the quantities it "

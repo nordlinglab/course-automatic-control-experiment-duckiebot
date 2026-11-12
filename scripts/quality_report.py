@@ -9,11 +9,15 @@ with ``--readme FILE`` replaces the summary table between the lines
 ``<!-- quality-summary: start -->`` and ``<!-- quality-summary: end -->``
 of FILE, a Markdown file you add these lines to.
 
-A folder whose runs.csv cannot be read, such as one listing a run twice,
-gets a quality.md that says why and is left out of the statistics over all
-folders; the other folders are reported as usual. The exit status is 1 if a
-folder named on the command line is such a folder, and 0 when no folder is
-named, so that one group's runs.csv does not fail the report of all.
+A folder whose name, setup.toml, or runs.csv cannot be read, such as a
+scratch copy db17-daisy-left-m1_old or a runs.csv listing a run twice, gets a
+quality.md that says why and is left out of the statistics over all folders;
+a folder without runs.csv is reported as not tracked yet; a file with a motor
+folder name, such as db17-daisy-left.zip, gets a warning on stderr. The other
+folders are reported as usual. The exit status is 1 if a folder named on the
+command line is bad in one of these ways (not tracked yet is not bad), and 0
+when no folder is named, so that one group's folder does not fail the report
+of all.
 
 Example:
     python scripts/quality_report.py --raw data/raw --processed data/processed
@@ -81,21 +85,32 @@ def main(argv: list[str] | None = None) -> int:
         bad = [
             fq.folder
             for fq in folders
-            if any(i.code == quality.BAD_RUNS_CSV for i in fq.issues)
+            if any(i.code in quality.BAD_CODES for i in fq.issues)
         ]
         for name in bad:
+            if not (args.raw / name).is_dir():
+                continue  # reported when its quality.md cannot be written
             print(
-                f"warning: {name}: runs.csv cannot be read; see its {md.REPORT_NAME}",
+                f"warning: {name}: cannot be assessed; see its {md.REPORT_NAME}",
                 file=sys.stderr,
             )
         for fq in folders:
             if args.folders and fq.folder not in args.folders:
                 continue
             path = args.raw / fq.folder / md.REPORT_NAME
-            path.write_text(
-                md.render_report(fq, date=args.date, motion_bias=bias),
-                encoding="utf-8",
-            )
+            try:
+                path.write_text(
+                    md.render_report(fq, date=args.date, motion_bias=bias),
+                    encoding="utf-8",
+                )
+            except OSError as exc:
+                # A file such as db17-daisy-left.zip, or a folder not writable.
+                print(
+                    f"warning: {fq.folder}: no {md.REPORT_NAME} written: {exc}",
+                    file=sys.stderr,
+                )
+                bad.append(fq.folder)
+                continue
             warned = sum(rq.warned for rq in fq.runs)
             print(f"{path}: {warned} of {len(fq.runs)} runs with warnings")
         if args.readme is not None:
