@@ -27,6 +27,7 @@ from pathlib import Path
 
 import numpy as np
 
+from duckiebot_analysis.ai_policy import commented
 from duckiebot_analysis.analysis.case_study import (
     DUTY_TOL,
     FINAL_S,
@@ -69,11 +70,13 @@ def fmt_pm(value: float, sd: float) -> str:
 
 
 def write_macros(path: Path, macros: dict[str, str], command: str) -> None:
-    """Write one \\newcommand per macro, under a header naming the command."""
+    """Write one \\newcommand per macro, under the AI-use policy and a header."""
     bad = [k for k in macros if not re.fullmatch(r"[A-Za-z]+", k)]
     if bad:
         raise ValueError(f"macro names must be letters only: {bad}")
     lines = [
+        *commented("%"),
+        "%",
         "% Generated; do not edit. Every number of the article, computed from",
         "% data/processed/ and data/raw/ by:",
         f"%   {command}",

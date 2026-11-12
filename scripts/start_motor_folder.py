@@ -44,6 +44,7 @@ import json
 import sys
 from pathlib import Path
 
+from duckiebot_analysis.ai_policy import commented, html_comment
 from duckiebot_analysis.cli import HelpFormatter
 from duckiebot_analysis.data.layout import (
     RUNS_COLUMNS,
@@ -101,10 +102,17 @@ README = """\
 MANUAL_README = """\
 # Hand measurements
 
-This folder holds the values measured by hand, such as the wheel radius, in
-`measurements.csv` (data/schema.md section 8), and photos or scans of the
-sheets they were written on.
+This folder holds the values measured by hand, such as the wheel radius, in `measurements.csv` (data/schema.md section 8), and photos or scans of the sheets they were written on.
 """
+
+
+def with_policy(name: str, text: str) -> str:
+    """Return text with the AI-use policy in front, if its format has comments."""
+    if name.endswith(".toml"):
+        return "\n".join([*commented("#"), "#", ""]) + text
+    if name.endswith(".md"):
+        return "\n".join([*html_comment(), "", ""]) + text
+    return text
 
 
 class UserError(Exception):
@@ -225,6 +233,9 @@ def create(folder: Path, robot: str, position: str, labels: tuple[str, ...]) -> 
         ),
         "manual/README.md": MANUAL_README,
     }
+    # Students upload single files to AI services, so each file that can hold
+    # a comment begins with the course policy on AI use; CSV cannot.
+    files = {name: with_policy(name, text) for name, text in files.items()}
     for sub in ("frames", "pi", "manual"):
         (folder / sub).mkdir(parents=True, exist_ok=True)
     kept = []
