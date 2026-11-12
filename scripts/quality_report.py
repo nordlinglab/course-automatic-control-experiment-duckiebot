@@ -19,8 +19,10 @@ command line is bad in one of these ways (not tracked yet is not bad), and 0
 when no folder is named, so that one group's folder does not fail the report
 of all.
 
-Example:
+Examples:
     python scripts/quality_report.py --raw data/raw --processed data/processed
+    python scripts/quality_report.py --raw data/raw --processed data/processed \\
+        db17-r5-left-m9
 """
 
 from __future__ import annotations
@@ -32,12 +34,13 @@ from pathlib import Path
 
 from duckiebot_analysis.analysis import quality
 from duckiebot_analysis.analysis import quality_markdown as md
+from duckiebot_analysis.cli import HelpFormatter
 from duckiebot_analysis.data import layout
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     """Parse the command line."""
-    p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    p = argparse.ArgumentParser(description=__doc__, formatter_class=HelpFormatter)
     p.add_argument(
         "folders",
         nargs="*",
@@ -53,7 +56,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument(
         "--readme",
         type=Path,
-        help="Markdown file with quality-summary markers to update",
+        help="Markdown file with quality-summary markers to update "
+        "(default: none, no summary is written)",
     )
     p.add_argument(
         "--date", default=date.today().isoformat(), help="report date, YYYY-MM-DD"

@@ -6,6 +6,7 @@ Run from the repository root: python -m pytest scripts/tests
 """
 
 import importlib
+import re
 import sys
 from pathlib import Path
 
@@ -52,7 +53,8 @@ def test_track_video_lists_the_experiment_names(capsys):
 def test_plot_help_says_the_defaults_reproduce_the_article(capsys):
     text = _help("plot_case_study_csme2026", capsys)
     assert "article" in text
-    assert "--folder db17-r5-left-m9 --label R5-L-m9" in text
+    # The label of a folder such as db17-r5-left-m9 is derived from its name.
+    assert "db17-r5-left-m9" in text and "R5-L-m9" in text
 
 
 def test_folder_name_error_shows_the_placeholder_and_an_example():
@@ -79,3 +81,129 @@ def test_no_matching_run_says_how_to_fix_it(tmp_path):
         cs._one_run(tmp_path, config.e1_run)
     assert "process_raw.py" in str(exc.value)
     assert "R5-L-m9_A_sweep_dense_" in str(exc.value)
+
+
+# ------------------------------------------------- help texts and examples
+
+ENTRY_SCRIPTS = [
+    "track_video",
+    "process_raw",
+    "quality_report",
+    "select_wheel_frames",
+    "plot_case_study_csme2026",
+    "start_motor_folder",
+]
+
+
+def _raw_help(script: str, capsys) -> str:
+    with pytest.raises(SystemExit):
+        importlib.import_module(script).parse_args(["--help"])
+    return capsys.readouterr().out
+
+
+def _option_entries(text: str) -> list[str]:
+    """Return the help entry of each option, its continuation lines joined."""
+    section = text.split("\noptions:\n", 1)[1]
+    entries: list[str] = []
+    for line in section.splitlines():
+        if line.startswith("  -"):
+            entries.append(line)
+        elif entries and line.startswith("   "):
+            entries[-1] += " " + line.strip()
+    return [" ".join(e.split()) for e in entries]
+
+
+@pytest.mark.parametrize("script", ENTRY_SCRIPTS)
+def test_help_shows_the_whole_docstring_with_its_examples(script, capsys):
+    doc = importlib.import_module(script).__doc__
+    text = _raw_help(script, capsys)
+    for line in doc.splitlines():
+        # Kept line by line, so the example commands can be copied.
+        assert line.rstrip() in text, line
+    assert "python scripts/" in text
+
+
+@pytest.mark.parametrize("script", ENTRY_SCRIPTS)
+def test_every_option_has_a_help_text_with_its_default(script, capsys):
+    entries = _option_entries(_raw_help(script, capsys))
+    assert len(entries) > 1
+    for entry in entries:
+        if entry.startswith("-h, --help"):
+            continue
+        words = entry.split()
+        # The option, its metavar, then a help text.
+        assert len(words) > 2, entry
+        assert "default" in entry, entry
+
+
+def test_track_video_explains_the_modes(capsys):
+    text = _help("track_video", capsys)
+    assert "stand = robot on its stand, wheel in the air" in text
+    assert "floor = driving on the floor" in text
+
+
+@pytest.mark.parametrize("script", ENTRY_SCRIPTS)
+def test_docstring_examples_follow_the_readme(script):
+    doc = importlib.import_module(script).__doc__
+    assert not re.search(r"(?<!\d)20\d{6}(?!\d)", doc), "use the placeholder <YYYYMMDD>"
+    assert "1920x1080" not in doc and "30 fps" not in doc
+    for label in re.findall(r"R\d+-[LR]-m\d+", doc):
+        assert label == "R5-L-m9"
+    for name in re.findall(r"db17-r\d+-[a-z]+-m\d+", doc):
+        assert name == "db17-r5-left-m9"
+    if ".mp4" in doc or ".MOV" in doc:
+        assert ".mp4" in doc and ".MOV" in doc
+
+
+def test_track_video_example_uses_the_kit_phone_setting():
+    import track_video
+
+    assert "phone slow motion 1280x720 240 fps" in track_video.__doc__
+    assert "data/raw/db17-r5-left-m9" in track_video.__doc__
+
+
+# ------------------------------------------------- the label of the case study
+
+
+@pytest.mark.parametrize(
+    ("folder", "label"),
+    [
+        ("db17-cherry-left-m5", "R3-L"),  # the article's
+        ("db17-r5-left-m9", "R5-L-m9"),
+        ("db17-r2-right-m4", "R2-R-m4"),
+        ("db17-r8-right-m16", "R8-R-m16"),
+    ],
+)
+def test_plot_derives_the_label_from_the_folder(folder, label):
+    import plot_case_study_csme2026 as plot
+
+    assert plot.label_from_folder(folder) == label
+
+
+def test_plot_defaults_reproduce_the_article():
+    import plot_case_study_csme2026 as plot
+
+    args = plot.parse_args([])
+    assert args.folder == cs.MOTOR
+    assert plot.resolve_label(args) == cs.LABEL == "R3-L"
+
+
+def test_plot_label_overrides_the_derived_one():
+    import plot_case_study_csme2026 as plot
+
+    args = plot.parse_args(["--folder", "db17-r5-left-m9", "--label", "X1"])
+    assert plot.resolve_label(args) == "X1"
+
+
+@pytest.mark.parametrize(
+    "folder", ["db17-daisy-left-m1", "db17-cherry-right-m6", "db17-r5-both-m9-m10"]
+)
+def test_plot_asks_for_the_label_it_cannot_derive(folder, tmp_path, capsys):
+    import plot_case_study_csme2026 as plot
+
+    code = plot.main(["--data", str(tmp_path), "--folder", folder])
+    err = capsys.readouterr().err
+    assert code == 1
+    assert err.startswith("error:") and "Traceback" not in err
+    if "both" not in folder:
+        assert "--label" in err

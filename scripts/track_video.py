@@ -6,14 +6,14 @@
 
 Writes <folder>/frames/<run>.parquet and prints the run's row for runs.csv
 (§4) to stdout, so it can be appended with >>. The run identifier is the video
-file name without extension. An existing frame table is never overwritten
-unless --force is given.
+file name without extension, .mp4 or .MOV. An existing frame table is never
+overwritten unless --force is given.
 
 Example:
-    python scripts/track_video.py VIDEO.mp4 \\
+    python scripts/track_video.py \\
+        <video-folder>/R5-L-m9_C_b060p040_rep01-03_<YYYYMMDD>.mp4 \\
         --folder data/raw/db17-r5-left-m9 --mode stand \\
-        --marker-colour blue --led-colour green \\
-        --camera "phone, 1920x1080 H.264 30 fps"
+        --camera "phone slow motion 1280x720 240 fps" --experiment C
 
 The defaults (blue marker tape, green sync LED) fit the course kit; the
 article's recordings used a white marker and a red LED.
@@ -25,6 +25,7 @@ import argparse
 import sys
 from pathlib import Path
 
+from duckiebot_analysis.cli import HelpFormatter
 from duckiebot_analysis.data.frames import write_frames
 from duckiebot_analysis.data.layout import (
     SYNC_LEVELS,
@@ -34,28 +35,42 @@ from duckiebot_analysis.data.layout import (
     parse_motor_folder,
 )
 from duckiebot_analysis.tracking.blobs import PRESETS
-from duckiebot_analysis.tracking.track import TrackConfig, track_video
+from duckiebot_analysis.tracking.track import (
+    FLOOR_HUB_FACTOR,
+    FLOOR_LED_FACTOR,
+    FLOOR_MARKER_FACTOR,
+    TrackConfig,
+    track_video,
+)
 from duckiebot_analysis.tracking.video import probe_video
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     """Parse the command line."""
     presets = ", ".join(f"{k} ({v})" for k, v in PRESETS.items())
-    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("video", type=Path, help="video file")
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=HelpFormatter)
+    ap.add_argument(
+        "video", type=Path, help="video file, .mp4 or .MOV, named after its run"
+    )
     ap.add_argument(
         "--folder",
         type=Path,
         required=True,
         help="motor folder data/raw/db17-<robot>-<position>-<motor>, "
-        "such as data/raw/db17-r5-left-m9",
+        "such as data/raw/db17-r5-left-m9 (default: none, required)",
     )
-    ap.add_argument("--mode", choices=("stand", "floor"), required=True)
+    ap.add_argument(
+        "--mode",
+        choices=("stand", "floor"),
+        required=True,
+        help="stand = robot on its stand, wheel in the air; "
+        "floor = driving on the floor (default: none, required)",
+    )
     ap.add_argument(
         "--camera",
         required=True,
-        help='phone model and recording mode, such as "Samsung S7 Edge, '
-        'slow motion 1280x720 240 fps"',
+        help='phone and recording mode, such as "phone slow motion 1280x720 '
+        '240 fps" (default: none, required)',
     )
     ap.add_argument(
         "--marker-colour",
@@ -70,52 +85,69 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         type=float,
         nargs=3,
         metavar=("CX", "CY", "R"),
-        help="stand: marker search disk in px (located from key frames if omitted)",
+        help="stand: marker search disk in px (default: located from key frames)",
     )
     ap.add_argument(
         "--hub-region",
         type=float,
         nargs=3,
         metavar=("CX", "CY", "R"),
-        help="stand: hub search disk in px (located from key frames if omitted)",
+        help="stand: hub search disk in px (default: located from key frames)",
     )
     ap.add_argument(
         "--led-xy",
         type=float,
         nargs=2,
         metavar=("X", "Y"),
-        help="stand: LED grid centre in px (located from key frames if omitted)",
+        help="stand: LED grid centre in px (default: located from key frames)",
     )
     ap.add_argument("--no-led", action="store_true", help="the run has no sync LED")
     ap.add_argument(
         "--led-colour",
         choices=("red", "green"),
         default="green",
-        help="colour of the sync LED (default: green)",
+        help="colour of the sync LED",
     )
     ap.add_argument(
-        "--floor-hub-radius", type=float, help="floor: hub region radius in px"
+        "--floor-hub-radius",
+        type=float,
+        help="floor: hub region radius in px (default: "
+        f"{FLOOR_HUB_FACTOR} times the radius of the first hub blob found)",
     )
     ap.add_argument(
-        "--floor-marker-radius", type=float, help="floor: marker region radius in px"
+        "--floor-marker-radius",
+        type=float,
+        help="floor: marker region radius in px (default: "
+        f"{FLOOR_MARKER_FACTOR} times the radius of the first hub blob found)",
     )
     ap.add_argument(
-        "--floor-led-radius", type=float, help="floor: LED search radius in px"
+        "--floor-led-radius",
+        type=float,
+        help="floor: LED search radius around the hub in px (default: "
+        f"{FLOOR_LED_FACTOR} times the marker region radius)",
     )
     ap.add_argument(
         "--experiment",
         help="runs.csv experiment: A-dense for E1 (the dense sweep, both "
         "directions in one video) and C for E2; for other clips A-sweep, B, B+D, "
-        "E-air, or E-floor",
+        "E-air, or E-floor (default: empty)",
     )
     ap.add_argument(
-        "--sync", choices=SYNC_LEVELS, help="runs.csv synchronisation level"
+        "--sync",
+        choices=SYNC_LEVELS,
+        help="runs.csv synchronisation level (default: empty)",
     )
-    ap.add_argument("--pi-log", help="runs.csv Pi log path relative to the folder")
     ap.add_argument(
-        "--trials", default="", help="runs.csv trial identifiers, ';'-separated"
+        "--pi-log",
+        help="runs.csv Pi log paths relative to the folder, ';'-separated "
+        "(default: empty)",
     )
-    ap.add_argument("--notes", help="runs.csv notes")
+    ap.add_argument(
+        "--trials",
+        default="",
+        help="runs.csv trial identifiers, ';'-separated (default: empty)",
+    )
+    ap.add_argument("--notes", help="runs.csv notes (default: empty)")
     ap.add_argument(
         "--force", action="store_true", help="overwrite an existing frame table"
     )

@@ -12,13 +12,15 @@ file is never overwritten.
 With --trials, it reads every pi/*_meta.json that motor_trial.py wrote and
 adds one row to trials.csv for each trial not yet listed (data/schema.md §5).
 --run and --match fill in the video (run) of the trials whose name contains
-the given text, also for trials listed earlier without a run.
+the given text, also for trials listed earlier without a run. --run is the
+video's file name without its extension, .mp4 or .MOV; an extension given is
+dropped, with a note.
 
 Examples:
     python scripts/start_motor_folder.py data/raw/db17-r5-left-m9
     python scripts/start_motor_folder.py data/raw/db17-r5-left-m9 --trials
     python scripts/start_motor_folder.py data/raw/db17-r5-left-m9 --trials \\
-        --run R5-L-m9_C_b060p040_rep01-03_20261105 --match _C_b060p040_
+        --run R5-L-m9_C_b060p040_rep01-03_<YYYYMMDD> --match _C_b060p040_
 """
 
 from __future__ import annotations
@@ -30,6 +32,7 @@ import json
 import sys
 from pathlib import Path
 
+from duckiebot_analysis.cli import HelpFormatter
 from duckiebot_analysis.data.layout import (
     RUNS_COLUMNS,
     TRIAL_STATUSES,
@@ -40,6 +43,11 @@ from duckiebot_analysis.data.layout import (
 
 COMMAND = "python scripts/start_motor_folder.py"
 EXAMPLE = "data/raw/db17-r5-left-m9"
+VIDEO_EXTENSIONS = (".mp4", ".mov")  # compared in lower case
+# Written when pi/motor_mapping.json does not give the channel; any string
+# passes read_setup, and this one is plainly not filled in.
+HAT_CHANNEL_PLACEHOLDER = "M?"
+MAPPING = "motor_mapping.json"
 NAME_RULE = (
     "Name it db17-<robot>-<position>-<motor>, such as db17-r5-left-m9: the "
     "robot, then left or right (where the motor sits on the robot), then the "
@@ -57,6 +65,8 @@ motor = "{motor}"
 # The number written on the motor (for both: left, then right), from the folder name:
 motor_label = "{label}"
 hat = "Adafruit DC & Stepper Motor HAT, PCA9685 at 0x60"
+# The HAT channel the motor is wired to, M1 to M4, see motor_mapping.json{source}:
+hat_channel = "{channel}"
 pwm_frequency_hz = 1600  # MotorKit default
 quantisation = "pca9685"  # motor_trial.py writes the duty straight to the HAT
 supply = "5.1 V mains adapter, powering both the Pi and the motor HAT"
@@ -91,9 +101,7 @@ class UserError(Exception):
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     """Parse the command line."""
-    p = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
-    )
+    p = argparse.ArgumentParser(description=__doc__, formatter_class=HelpFormatter)
     p.add_argument(
         "folder",
         type=Path,
@@ -107,18 +115,19 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     p.add_argument(
         "--run",
-        help="with --trials and --match: the video file name without .mp4",
+        help="with --trials and --match: the video's file name without its "
+        "extension, .mp4 or .MOV (default: none, no run is filled in)",
     )
     p.add_argument(
         "--match",
         help="with --trials and --run: text that the names of the video's "
-        "trials contain, such as _C_b060p040_",
+        "trials contain, such as _C_b060p040_ (default: none)",
     )
     args = p.parse_args(argv)
+    if (args.run is not None or args.match is not None) and not args.trials:
+        p.error("--trials is missing; --run and --match only work with --trials")
     if (args.run is None) != (args.match is None):
         p.error("give --run and --match together")
-    if args.run is not None and not args.trials:
-        p.error("--run and --match only work together with --trials")
     if args.match == "" or args.run == "":
         p.error("--run and --match must not be empty")
     return args
@@ -146,9 +155,43 @@ def check_folder(folder: Path) -> tuple[str, str, tuple[str, ...]]:
     return robot, position, labels
 
 
+def hat_channel(folder: Path, robot: str, position: str) -> tuple[str, str]:
+    """Return the HAT channel(s) of the motor from pi/motor_mapping.json.
+
+    The Pi's motor_mapping.json maps the robot, in upper case, and the wheel,
+    L or R, to its channel number, such as {"R5": {"L": {"channel": 2}}},
+    which is HAT channel M2. A both folder gets the left, then the right one.
+
+    Returns:
+        The channel, or HAT_CHANNEL_PLACEHOLDER with a message saying why.
+    """
+    path = folder / "pi" / MAPPING
+    if not path.is_file():
+        return HAT_CHANNEL_PLACEHOLDER, ""
+    wheels = ("L", "R") if position == "both" else (position[0].upper(),)
+    try:
+        mapping = json.loads(path.read_text(encoding="utf-8"))
+        channels = []
+        for wheel in wheels:
+            number = mapping[robot.upper()][wheel]["channel"]
+            if isinstance(number, bool) or number not in (1, 2, 3, 4):
+                raise ValueError(f"channel {number!r} is not 1 to 4")
+            channels.append(f"M{number}")
+    except (ValueError, KeyError, TypeError) as exc:
+        return HAT_CHANNEL_PLACEHOLDER, (
+            f"{path} gives no HAT channel of {robot.upper()} "
+            f"{' and '.join(wheels)} ({type(exc).__name__}: {exc}); fill in "
+            "hat_channel in setup.toml by hand"
+        )
+    return ", ".join(channels), ""
+
+
 def create(folder: Path, robot: str, position: str, labels: tuple[str, ...]) -> None:
     """Create the motor folder's subfolders and files; keep any that exist."""
     label = ", ".join(labels)
+    channel, problem = hat_channel(folder, robot, position)
+    if problem:
+        print(problem)
     files = {
         "README.md": README.format(
             name=folder.name,
@@ -159,7 +202,15 @@ def create(folder: Path, robot: str, position: str, labels: tuple[str, ...]) -> 
         ),
         "runs.csv": ",".join(RUNS_COLUMNS) + "\n",
         "trials.csv": ",".join(TRIALS_COLUMNS) + "\n",
-        "setup.toml": SETUP_TOML.format(robot=robot, motor=position, label=label),
+        "setup.toml": SETUP_TOML.format(
+            robot=robot,
+            motor=position,
+            label=label,
+            channel=channel,
+            source=""
+            if channel == HAT_CHANNEL_PLACEHOLDER
+            else f" (from pi/{MAPPING})",
+        ),
         "manual/README.md": MANUAL_README,
     }
     for sub in ("frames", "pi", "manual"):
@@ -175,7 +226,12 @@ def create(folder: Path, robot: str, position: str, labels: tuple[str, ...]) -> 
     if kept:
         print(f"left unchanged, as they already exist: {', '.join(kept)}")
     print(f"{folder} is ready.")
-    print("Next: fill in README.md and check every value in setup.toml.")
+    print(
+        "Next: fill in README.md and check every value in setup.toml. Then copy "
+        f"the Pi logs and {MAPPING} with scp into {folder / 'pi'} (README.md, "
+        "Copy the files to the laptop), and list the trials with\n"
+        f"  {COMMAND} {folder} --trials"
+    )
 
 
 def _meta_row(path: Path) -> tuple[list[str], str]:
@@ -296,6 +352,9 @@ def add_trials(folder: Path, run: str | None, match: str | None) -> int:
         with open(path, "a", encoding="utf-8", newline="") as fh:
             fh.write(prefix + _csv_lines(new))
     print(f"added {len(new)} trial(s) to {path}")
+    if match is not None and not matched:
+        print(f"error: no trial name contains {match!r}", file=sys.stderr)
+        return 1
     if match is not None:
         print(f"set the run of {filled} trial(s) to {run}")
         if matched > filled:
@@ -305,14 +364,19 @@ def add_trials(folder: Path, run: str | None, match: str | None) -> int:
         more = f", and {len(empty) - 3} more" if len(empty) > 3 else ""
         print(
             f"\n{len(empty)} trial(s) have no run yet: {', '.join(empty[:3])}{more}\n"
-            "For each video, give its file name without .mp4 and a text that "
+            "For each video, give its file name without its extension (.mp4 or "
+            ".MOV) and a text that "
             "only the names of its trials contain:\n"
             f"  {COMMAND} {folder} --trials --run <video name> --match <text>"
         )
-    if match is not None and not matched:
-        print(f"error: no trial name contains {match!r}", file=sys.stderr)
-        return 1
     return 0
+
+
+def strip_video_extension(run: str) -> str:
+    """Return the run name without its video extensions, such as .mp4.MOV."""
+    while run.lower().endswith(VIDEO_EXTENSIONS) and run.rfind(".") > 0:
+        run = run[: run.rfind(".")]
+    return run
 
 
 def _in_header_order(row: list[str], header: list[str]) -> list[str]:
@@ -329,7 +393,14 @@ def main(argv: list[str] | None = None) -> int:
     try:
         robot, position, labels = check_folder(args.folder)
         if args.trials:
-            return add_trials(args.folder, args.run, args.match)
+            run = args.run
+            if run is not None and strip_video_extension(run) != run:
+                run = strip_video_extension(run)
+                print(
+                    f"note: --run is the video name without its extension; "
+                    f"using {run} for {args.run}"
+                )
+            return add_trials(args.folder, run, args.match)
         create(args.folder, robot, position, labels)
     except (UserError, OSError) as exc:
         print(f"error: {exc}", file=sys.stderr)

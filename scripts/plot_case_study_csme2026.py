@@ -4,22 +4,25 @@
 
 Reads data/processed/<folder> (made by scripts/process_raw.py) and the Pi logs
 in data/raw/<folder>, where <folder> is a motor folder such as db17-r5-left-m9
-and <label> starts its run names, such as R5-L-m9. The defaults reproduce the
-article (motor m5, folder db17-cherry-left-m5, label R3-L). It writes
-fig-*.pdf into the figures folder and the LaTeX macros of the reported
-numbers into results.tex. fig-methods.pdf, the
-schematic of S3-S5 of the supplement, uses synthetic data only;
-fig-rest-noise.pdf shows the speed noise at rest that sets omega_min;
+and <label> starts its run names, such as R5-L-m9. The label is derived from
+the folder name, db17-r5-left-m9 giving R5-L-m9; give --label when your run
+names start otherwise. The defaults reproduce the article (motor m5, folder
+db17-cherry-left-m5, label R3-L). It writes fig-*.pdf into the figures
+folder and the LaTeX macros of the reported numbers into results.tex.
+fig-methods.pdf, the schematic of S3-S5 of the supplement, uses synthetic data
+only; fig-rest-noise.pdf shows the speed noise at rest that sets omega_min;
 fig-wheel-overlay.pdf shows the tracker's output on the frames that
 scripts/select_wheel_frames.py picked from a video (skipped with a message
 when that script has not been run).
 
-Usage: python scripts/plot_case_study_csme2026.py --data data \\
-    --folder db17-r5-left-m9 --label R5-L-m9 \\
-    --figures build/figures/case_study
+Examples:
+    python scripts/plot_case_study_csme2026.py
+    python scripts/plot_case_study_csme2026.py --data data \\
+        --folder db17-r5-left-m9 --figures build/figures/db17-r5-left-m9
 """
 
 import argparse
+import re
 import sys
 from pathlib import Path
 
@@ -30,6 +33,8 @@ from duckiebot_analysis.analysis.case_study import (
     case_study,
     configure,
 )
+from duckiebot_analysis.cli import HelpFormatter
+from duckiebot_analysis.data.layout import motor_ids, parse_motor_folder
 from duckiebot_analysis.visualization.case_study_figures import make_all
 from duckiebot_analysis.visualization.methods_figure import fig_methods
 from duckiebot_analysis.visualization.rest_noise_figure import fig_rest_noise
@@ -43,25 +48,24 @@ COMMAND = "python scripts/plot_case_study_csme2026.py"
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     """Parse the command line."""
-    p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    p = argparse.ArgumentParser(description=__doc__, formatter_class=HelpFormatter)
     p.add_argument(
         "--data",
         type=Path,
         default=Path("data"),
-        help="folder holding raw/ and processed/ (default: data)",
+        help="folder holding raw/ and processed/",
     )
     p.add_argument(
         "--folder",
         default=MOTOR,
-        help="motor folder name db17-<robot>-<position>-<motor> (default: "
-        f"{MOTOR}, which with the default --label reproduces the article; for "
-        "your motor give, for example, --folder db17-r5-left-m9 --label R5-L-m9)",
+        help="motor folder name db17-<robot>-<position>-<motor>, such as "
+        "db17-r5-left-m9; the default reproduces the article",
     )
     p.add_argument(
         "--label",
-        default=LABEL,
-        help=f"start of the run names, such as R5-L-m9 (default: {LABEL}, the "
-        "article's)",
+        help="start of the run names, such as R5-L-m9 (default: derived from "
+        f"--folder, db17-r5-left-m9 giving R5-L-m9, and {LABEL} for the "
+        f"article's {MOTOR})",
     )
     p.add_argument(
         "--figures",
@@ -83,9 +87,39 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--wheel-frames",
         type=Path,
         default=WHEEL_FRAMES_DIR,
-        help=f"output folder of select_wheel_frames.py (default: {WHEEL_FRAMES_DIR})",
+        help="output folder of select_wheel_frames.py",
     )
     return p.parse_args(argv)
+
+
+def label_from_folder(folder: str) -> str:
+    """Return the start of the run names of a motor folder name.
+
+    The article's folder, db17-cherry-left-m5, gives its label R3-L; any other
+    folder db17-r<n>-<left|right>-<motor> gives R<n>-<L|R>-<motor>, as the Pi
+    names the runs, such as R5-L-m9 for db17-r5-left-m9.
+
+    Raises:
+        ValueError: If the folder is not a one-wheel motor folder name, or its
+            robot is not named r<n>, so that --label must be given.
+    """
+    if folder == MOTOR:
+        return LABEL
+    configure(folder, "")  # refuses a path, a bad name, or a both folder
+    robot, side = parse_motor_folder(folder)
+    number = re.fullmatch(r"r(\d+)", robot)
+    if number is None:
+        raise ValueError(
+            f"the run label cannot be derived from --folder {folder}, whose robot "
+            f"{robot!r} is not r<n>; give the start of the run names with "
+            "--label, such as --label R5-L-m9"
+        )
+    return f"R{number[1]}-{side[0].upper()}-{motor_ids(folder)[0]}"
+
+
+def resolve_label(args: argparse.Namespace) -> str:
+    """Return --label, or the label derived from --folder when it is not given."""
+    return args.label if args.label is not None else label_from_folder(args.folder)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -96,6 +130,11 @@ def main(argv: list[str] | None = None) -> int:
     with --debug. Both return 1.
     """
     args = parse_args(argv)
+    try:
+        args.label = resolve_label(args)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
     try:
         return _run(args)
     except Exception as exc:

@@ -343,3 +343,112 @@ def test_trials_on_a_missing_folder_says_to_create_it_first(folder):
     assert out.returncode == 1
     assert "Traceback" not in out.stderr
     assert not folder.exists()
+
+
+# ------------------------------------------------- help and defaults
+
+
+@pytest.mark.parametrize(
+    "video", ["V1.mp4", "V1.MOV", "V1.mov", "V1.MP4", "V1.mp4.MOV", "V1.MOV.mp4"]
+)
+def test_run_drops_a_video_extension_with_a_note(with_trials, video):
+    out = _run(str(with_trials), "--trials", "--run", video, "--match", "_C_")
+    assert out.returncode == 0, out.stderr
+    runs = {r["trial"]: r["run"] for r in _rows(with_trials)}
+    assert runs[_E2.format(1, 1)] == runs[_E2.format(2, 2)] == "V1"
+    note = next(x for x in out.stdout.splitlines() if x.startswith("note:"))
+    assert video in note and "V1" in note
+
+
+def test_run_without_an_extension_gets_no_note(with_trials):
+    out = _run(str(with_trials), "--trials", "--run", "V1", "--match", "_C_")
+    assert out.returncode == 0, out.stderr
+    assert "note:" not in out.stdout
+
+
+def test_a_match_without_trials_prints_only_the_error(with_trials):
+    out = _run(str(with_trials), "--trials", "--run", "V1", "--match", "_nothing_")
+    assert out.returncode == 1
+    assert "_nothing_" in out.stderr
+    assert "set the run" not in out.stdout
+    assert "no run yet" not in out.stdout
+
+
+@pytest.mark.parametrize(
+    "args",
+    [["--run", "V", "--match", "R5"], ["--run", "V"], ["--match", "R5"]],
+)
+def test_run_or_match_without_trials_says_trials_is_missing(with_trials, args):
+    out = _run(str(with_trials), *args)
+    assert out.returncode != 0
+    assert "--trials is missing" in out.stderr
+
+
+def _hat_channel_lines(folder: Path) -> list[str]:
+    text = (folder / "setup.toml").read_text(encoding="utf-8")
+    lines = text.splitlines()
+    k = next(i for i, x in enumerate(lines) if x.startswith("hat_channel"))
+    return lines[k - 1 : k + 1]
+
+
+def test_setup_toml_has_a_hat_channel_placeholder_the_reader_accepts(folder):
+    assert _run(str(folder)).returncode == 0
+    comment, _ = _hat_channel_lines(folder)
+    assert "M1 to M4" in comment and "motor_mapping.json" in comment
+    assert read_setup(folder).hat_channel
+
+
+def _write_mapping(folder: Path, mapping: dict) -> None:
+    (folder / "pi").mkdir(parents=True)
+    (folder / "pi" / "motor_mapping.json").write_text(
+        json.dumps(mapping), encoding="utf-8"
+    )
+
+
+# As in the kit's pi/motor_mapping.example.json.
+_MAPPING = {
+    "R5": {
+        "L": {"channel": 2, "forward_sign": 1},
+        "R": {"channel": 1, "forward_sign": 1},
+        "verified": True,
+    }
+}
+
+
+def test_hat_channel_is_filled_from_motor_mapping_json(folder):
+    _write_mapping(folder, _MAPPING)
+    assert _run(str(folder)).returncode == 0
+    assert read_setup(folder).hat_channel == "M2"
+
+
+def test_hat_channel_of_a_both_folder_lists_left_then_right(tmp_path):
+    folder = tmp_path / "raw" / "db17-r5-both-m9-m10"
+    _write_mapping(folder, _MAPPING)
+    assert _run(str(folder)).returncode == 0
+    assert read_setup(folder).hat_channel == "M2, M1"
+
+
+@pytest.mark.parametrize(
+    "mapping", [{"R2": _MAPPING["R5"]}, {"R5": {"L": {}}}, "not json"]
+)
+def test_a_mapping_without_the_motor_leaves_the_placeholder(folder, mapping):
+    if mapping == "not json":
+        (folder / "pi").mkdir(parents=True)
+        (folder / "pi" / "motor_mapping.json").write_text("{", encoding="utf-8")
+    else:
+        _write_mapping(folder, mapping)
+    out = _run(str(folder))
+    assert out.returncode == 0, out.stderr
+    assert "Traceback" not in out.stderr
+    placeholder = _hat_channel_lines(folder)[1]
+    folder2 = folder.parent / "db17-r6-left-m1"
+    assert _run(str(folder2)).returncode == 0
+    assert _hat_channel_lines(folder2)[1] == placeholder
+    assert "motor_mapping.json" in out.stdout
+
+
+def test_next_says_to_copy_the_pi_logs_then_list_the_trials(folder):
+    out = _run(str(folder))
+    next_text = out.stdout.split("Next:", 1)[1]
+    assert "scp" in next_text and f"{folder / 'pi'}" in next_text
+    assert next_text.index("scp") < next_text.index("--trials")
