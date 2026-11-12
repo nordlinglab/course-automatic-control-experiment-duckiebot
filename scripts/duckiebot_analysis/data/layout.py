@@ -245,11 +245,12 @@ def run_of_video(video: str | Path) -> str:
     """Return the run identifier of a video file: its name without extensions.
 
     The one rule for track_video.py, given the file, and start_motor_folder.py
-    --run, given its name. The last extension is dropped whatever it is, as
-    Path.stem does, and then every video extension before it, as
-    :func:`strip_video_extensions`.
+    --run, given its name. Only trailing video extensions (VIDEO_EXTENSIONS,
+    in any case) are dropped, as :func:`strip_video_extensions`; a name ending
+    in anything else, such as V1.notes, is kept whole, so that the rule gives
+    a run identifier back unchanged.
     """
-    return strip_video_extensions(Path(video).stem)
+    return strip_video_extensions(Path(video).name)
 
 
 def frames_path(folder: str | Path, run: str) -> Path:

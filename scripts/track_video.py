@@ -43,6 +43,7 @@ from duckiebot_analysis.cli import HelpFormatter
 from duckiebot_analysis.data.frames import write_frames
 from duckiebot_analysis.data.layout import (
     SYNC_LEVELS,
+    VIDEO_EXTENSIONS,
     RunRecord,
     format_runs_row,
     frames_path,
@@ -192,11 +193,20 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     run = run_of_video(args.video)
     if run != args.video.stem:
-        # One video, one run: start_motor_folder.py --run drops every extension.
-        print(
-            f"note: {args.video.name} has more than one extension; its run is {run}",
-            file=sys.stderr,
-        )
+        # One video, one run: start_motor_folder.py --run uses the same rule.
+        dropped = args.video.name[len(run) :]
+        if dropped:
+            print(
+                f"note: {args.video.name} ends in the video extensions {dropped}, "
+                f"all dropped; its run is {run}",
+                file=sys.stderr,
+            )
+        else:
+            print(
+                f"note: {args.video.name} does not end in a video extension "
+                f"({', '.join(VIDEO_EXTENSIONS)}); its run is the whole name {run}",
+                file=sys.stderr,
+            )
         # Tracked before under the old run id, Path.stem: a second frame table
         # and runs.csv row of the same video would count it twice.
         old = tracked_as(args.folder, args.video.stem)

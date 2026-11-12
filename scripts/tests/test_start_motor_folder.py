@@ -709,3 +709,51 @@ def test_track_video_stops_at_a_run_tracked_under_its_old_id(folder, old_in, cap
     assert runs.read_bytes() == runs_before
     assert old.exists() == (old_in == "frames")
     assert not (folder / "frames" / "V1.parquet").exists()
+
+
+@pytest.mark.parametrize(
+    ("video", "run"),
+    [
+        ("V1.notes", "V1.notes"),
+        ("V1.x1", "V1.x1"),
+        ("V1.notes.MOV", "V1.notes"),
+        ("V1 take 2.v2.mp4.avi", "V1 take 2.v2"),
+        ("V1", "V1"),
+    ],
+)
+def test_run_of_video_keeps_a_name_not_ending_in_a_video_extension(video, run):
+    from duckiebot_analysis.data.layout import run_of_video
+
+    assert run_of_video(video) == run
+    assert run_of_video(Path("videos") / video) == run
+
+
+@settings(database=None, max_examples=300)
+@given(st.text(min_size=1, max_size=30).filter(lambda s: "/" not in s))
+def test_run_of_video_is_idempotent(name):
+    from duckiebot_analysis.data.layout import run_of_video
+
+    once = run_of_video(name)
+    assert run_of_video(once) == once
+
+
+@pytest.mark.parametrize(
+    ("video", "note"),
+    [("V1.notes", "whole name"), ("V1.mp4.MOV", ".mp4.MOV"), ("V1.mp4", None)],
+)
+def test_track_video_notes_a_dropped_extension_only_when_one_was(
+    folder, video, note, capsys
+):
+    import track_video
+    from duckiebot_analysis.data.layout import run_of_video
+
+    assert _run(str(folder)).returncode == 0
+    # Stop at an existing frame table, after the note.
+    (folder / "frames" / f"{run_of_video(video)}.parquet").write_bytes(b"")
+    argv = [str(folder / video), "--folder", str(folder), "--mode", "stand"]
+    assert track_video.main([*argv, "--camera", "c"]) == 1
+    notes = [x for x in capsys.readouterr().err.splitlines() if x.startswith("note:")]
+    if note is None:
+        assert notes == []
+    else:
+        assert len(notes) == 1 and note in notes[0]
