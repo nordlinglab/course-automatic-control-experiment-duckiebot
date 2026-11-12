@@ -35,6 +35,17 @@ The code in `scripts/` turns each video and the Pi log into wheel angle, speed, 
 - The software on the Duckiebot is already on its SD card;
   this repository holds only the code that runs on your computer.
 
+## What you will learn
+
+1. To conduct an experiment on a real motor, from setup to recorded data.
+2. To practise the basic concepts of control on your own measurements:
+   step response, gain, time constant, delay, rise time, overshoot, and settling time.
+3. To find where the linear model of the course stops describing the motor, and why.
+4. To run a data analysis pipeline one step at a time and one figure at a time, checking each result before the next step.
+5. To write a technical report that a reader can check against your data.
+
+[GLOSSARY.md](GLOSSARY.md) explains every word of the lecture and of this README that you may not know.
+
 ## Course policy on AI use
 
 An AI assistant can be a patient tutor:
@@ -84,6 +95,7 @@ The steps are those of [From video to figures](#from-video-to-figures).
 | File | Use |
 |---|---|
 | `README.md` | These instructions. |
+| `GLOSSARY.md` | Plain-English meanings of the words used in the lecture, this README, and the scripts. |
 | `data/schema.md` | Every stored variable, its format, and how each derived quantity and its uncertainty is computed; the scripts cite its sections as §. |
 | `doc/template_Nordling2026_LatexExample/` | Example report: copy it to start your group report. |
 | `doc/lecture_Nordling2026_Exp2/` | Slides of the Experiment 2 lecture. |
@@ -278,6 +290,9 @@ dragging a file into the Git Bash window types its path for you.
    Every trial needs its video, or step 3 stops;
    the script prints which trials still lack one.
 
+   **Check:** open `trials.csv`;
+   you should see five rows, two for E1 and three for E2, each with its video in the `run` column.
+
 2. **Track each video:**
 
    ```bash
@@ -296,6 +311,10 @@ dragging a file into the Git Bash window types its path for you.
    The defaults are the kit's blue marker tape and green sync LED.
    Check the first line it prints, `<n> frames, marker absent in <m>`;
    if `m` is large, give a wider colour rule with `--marker-colour`, and use the same rule for every clip.
+
+   **Check:** `m` should be below about 1 % of `n`;
+   if more frames lack the marker, the tape is hidden or lit badly in the video.
+
    To track a video again, first delete its row from `runs.csv`, then rerun the command with `--force`, which replaces the frame table;
    `runs.csv` must list each run once.
 3. **Process the motor folder and check its quality:**
@@ -311,22 +330,58 @@ dragging a file into the Git Bash window types its path for you.
    A warning means the data should not be used for the quantities it affects:
    use a clean trial of the same condition, or record the clip again.
    Every trial should report `log+led`, which shows the LED was read.
-4. **Draw the figures and compute the numbers.**
-   Optionally first, for the wheel-overlay figure, with `--turns` set to `positive_duty_turns` of `setup.toml`:
 
-   ```bash
-   python scripts/select_wheel_frames.py <video-folder>/<video name>.mp4 --turns cw
+   **Look at your data yourself** before any model is fitted:
+   plot the speed `omega_rad_s` and the duty `u` against the time `t_s` for the E2 video, from `data/processed/db17-r5-left-m9/<E2 video name>.parquet`.
+   Python reads the file with
+
+   ```python
+   import pyarrow.parquet as pq
+   data = pq.read_table("data/processed/db17-r5-left-m9/<E2 video name>.parquet")
+   print(data.column_names)
    ```
 
-   Then, with your report folder in place of the example:
+   and `data["t_s"].to_numpy()` gives one column;
+   draw the plot with `matplotlib` yourself.
+   You should see three repetitions of the steps 0 → 0.6 → 1.0 → 0.6 → 0, the speed following each step with a short delay and a smooth rise.
+   Mark on your plot where you would read the gain, the time constant, the rise time, and the settling time.
+4. **Draw the figures, one at a time.**
+   Each command draws one figure, named by `--figure`, and writes all numbers into `results.tex` in your report folder;
+   use your report folder in place of the example.
+   Look at each figure, and write your answer to its question in your motor folder's `README.md` before you draw the next.
 
    ```bash
    python scripts/plot_case_study_csme2026.py --data data \
-       --folder db17-r5-left-m9 \
+       --folder db17-r5-left-m9 --figure small-duty \
        --figures build/figures/db17-r5-left-m9 \
        --macros doc/report_Andersson2026_WheelDynamics_Group03/results.tex
+   ```
+
+   - **4a, `small-duty`:** E1, the duty raised and lowered in small steps.
+     You should see the speed stay at zero until a start duty, somewhere between about 0.2 and 0.4, and the wheel stop again on the way down at a lower duty.
+     Does a small step move the wheel, as the linear model predicts (P1)?
+   - **4b, `step-06`:** E2, the step from 0 to 0.6, with the fitted first-order model.
+     You should see a smooth rise to a steady speed of roughly 15 to 20 rad/s within about a second, and a model that fits it well.
+     What gain and time constant did you get, and does the model predict the speed you saw at duty 0.2?
+   - **4c, `step-10`:** E2, the step from 0.6 to 1.0, with its own fit and the prediction of the model from 4b.
+     Do the gain and the time constant stay the same at this operating point (P2)?
+   - **4d, `hysteresis`:** the steps up and down compared.
+     Does the step down mirror the step up, and do the start and stop duties agree (P3)?
+   - **4e, `rest-noise`:** the speed noise of a wheel at rest, which sets the threshold below which the wheel counts as stopped.
+     How large is the noise compared with the speeds you measured?
+   - **Optional, `wheel-overlay`:** what the tracker found in the video.
+     First run, with `--turns` set to `positive_duty_turns` of `setup.toml`:
+
+     ```bash
+     python scripts/select_wheel_frames.py <video-folder>/<video name>.mp4 --turns cw
+     ```
+
+   `methods` draws a schematic of the method, the same for every group.
+   Copy the figures your report uses into its `figures/` folder:
+
+   ```bash
    mkdir -p doc/report_Andersson2026_WheelDynamics_Group03/figures
-   cp build/figures/db17-r5-left-m9/fig-*.pdf \
+   cp build/figures/db17-r5-left-m9/fig-small-duty.pdf \
      doc/report_Andersson2026_WheelDynamics_Group03/figures/
    ```
 
@@ -334,6 +389,14 @@ dragging a file into the Git Bash window types its path for you.
    `results.tex` holds every number as a LaTeX macro:
    `\input{results.tex}` in the preamble of your report lets you write `\StartDuty` in the text, so the text always matches the data;
    write a macro that contains `\pm` inside `$...$`.
+
+### Going further
+
+If you have time, test the model yourself:
+
+- Fit G and τ to one repetition of the step from 0 to 0.6 yourself, with `scipy.optimize.curve_fit` on the processed data, and compare them with the numbers in `results.tex`.
+- Plot the residuals of your fit, and of a fit to the step from 0.6 to 1.0.
+  Are they random, or do they show a pattern, and what does that say about the first-order model?
 
 ## Data
 
