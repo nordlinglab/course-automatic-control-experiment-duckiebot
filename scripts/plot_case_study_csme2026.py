@@ -61,7 +61,6 @@ from duckiebot_analysis.analysis.case_study import (
     LABEL,
     MOTOR,
     REST_EXCEEDANCE,
-    CaseStudy,
     CaseStudyConfig,
     case_study,
     configure,
@@ -69,7 +68,6 @@ from duckiebot_analysis.analysis.case_study import (
 from duckiebot_analysis.cli import HelpFormatter
 from duckiebot_analysis.data.layout import motor_ids, parse_motor_folder
 from duckiebot_analysis.visualization.case_study_figures import (
-    CASE_STUDY_FIGURES,
     make_all,
 )
 from duckiebot_analysis.visualization.methods_figure import fig_methods
@@ -81,40 +79,56 @@ from duckiebot_analysis.visualization.wheel_overlay_figure import (
 
 COMMAND = "python scripts/plot_case_study_csme2026.py"
 
-# The one list of the figures fig-<name>.pdf, in the order students draw them,
-# with what each shows, printed when it is written and listed in --help; the
-# report questions P1-P3 are those of the lecture and the report template.
+
+@dataclasses.dataclass(frozen=True)
+class Figure:
+    """One figure fig-<name>.pdf and how it is drawn.
+
+    Attributes:
+        what: What the figure shows, printed when it is written and in --help.
+        draw: Draws the figure into a PDF path, from the case study, the path,
+            and the command line if needs_data, else from the path and the
+            command line; None for a figure of make_all, which draws it with
+            the macros.
+        needs_data: Whether the figure needs the case study of the motor.
+        optional: How to make the input of an optional figure, which is
+            skipped with a message when all figures are drawn and its input
+            is missing (FileNotFoundError); empty for a required figure.
+    """
+
+    what: str
+    draw: Callable[..., None] | None = None
+    needs_data: bool = True
+    optional: str = ""
+
+
+# The one list of the figures fig-<name>.pdf, in the order students draw them;
+# the report questions P1-P3 are those of the lecture and the report template.
 FIGURES = {
-    "small-duty": "E1, where the wheel starts and stops (P1)",
-    "step-06": "E2, the step from rest to 0.6 and its first-order fit",
-    "step-10": "E2, the step from 0.6 to 1.0 against the model of 0.6 (P2)",
-    "hysteresis": "E1 and E2, the speed raised and lowered (P3)",
-    "rest-noise": "the speed noise at rest, which sets omega_min",
-    "methods": "schematic of the analysis methods, synthetic data only",
-    "wheel-overlay": "the tracker's output on the frames of select_wheel_frames.py",
+    "small-duty": Figure("E1, where the wheel starts and stops (P1)"),
+    "step-06": Figure("E2, the step from rest to 0.6 and its first-order fit"),
+    "step-10": Figure("E2, the step from 0.6 to 1.0 against the model of 0.6 (P2)"),
+    "hysteresis": Figure("E1 and E2, the speed raised and lowered (P3)"),
+    "rest-noise": Figure(
+        "the speed noise at rest, which sets omega_min",
+        lambda cs, path, args: fig_rest_noise(
+            cs.rest_noise, cs.omega_min, REST_EXCEEDANCE, path
+        ),
+    ),
+    "methods": Figure(
+        "schematic of the analysis methods, synthetic data only",
+        lambda path, args: fig_methods(path),
+        needs_data=False,
+    ),
+    "wheel-overlay": Figure(
+        "the tracker's output on the frames of select_wheel_frames.py",
+        lambda cs, path, args: fig_wheel_overlay(path, args.wheel_frames),
+        optional="run select_wheel_frames.py first",
+    ),
 }
 __doc__ = (__doc__ or "").replace(
-    "{figures}", "\n".join(f"    {n:<14} {what}" for n, what in FIGURES.items())
+    "{figures}", "\n".join(f"    {n:<14} {f.what}" for n, f in FIGURES.items())
 )
-
-
-def _draw_rest_noise(
-    cs: CaseStudy | None, path: Path, args: argparse.Namespace
-) -> None:
-    assert cs is not None  # only "methods" is drawn without the case study
-    fig_rest_noise(cs.rest_noise, cs.omega_min, REST_EXCEEDANCE, path)
-
-
-# The figures that make_all does not draw, each from the case study (None for a
-# figure that reads no data), its PDF path, and the command line.
-OTHER_FIGURES: dict[
-    str, Callable[[CaseStudy | None, Path, argparse.Namespace], None]
-] = {
-    "rest-noise": _draw_rest_noise,
-    "methods": lambda cs, path, args: fig_methods(path),
-    "wheel-overlay": lambda cs, path, args: fig_wheel_overlay(path, args.wheel_frames),
-}
-NO_DATA = ("methods",)  # drawn from synthetic data only
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -236,7 +250,7 @@ def main(argv: list[str] | None = None) -> int:
     names = list(FIGURES) if args.figure is None else [args.figure]
     config = None
     # A figure of synthetic data only needs no motor folder or label.
-    if not all(n in NO_DATA for n in names):
+    if any(FIGURES[n].needs_data for n in names):
         try:
             config = resolve_config(args)
         except ValueError as exc:
@@ -269,34 +283,38 @@ def _run(args: argparse.Namespace, config: CaseStudyConfig | None) -> int:
         try:
             cs = case_study(args.data, config)
             # make_all computes every reported number before it writes a file.
-            case = tuple(n for n in names if n in CASE_STUDY_FIGURES)
+            case = tuple(n for n in names if FIGURES[n].draw is None)
             *drawn, macro_file = make_all(cs, figures, macros, command, case)
             tail = [macro_file]
         except (FileNotFoundError, ValueError) as exc:
             print(f"error: {exc}", file=sys.stderr)
             return 1
     code = 0
-    for name in (n for n in OTHER_FIGURES if n in names):
+    for name in names:
+        fig = FIGURES[name]
+        if fig.draw is None:
+            continue  # drawn by make_all
         path = figures / f"fig-{name}.pdf"
         try:
-            OTHER_FIGURES[name](cs, path, args)
+            if fig.needs_data:
+                fig.draw(cs, path, args)
+            else:
+                fig.draw(path, args)
             drawn.append(path)
         except FileNotFoundError as exc:
-            if name != "wheel-overlay":
+            if not fig.optional:
                 raise
             # Skipped when drawing all, but an error when asked for alone.
             prefix = "skipped" if args.figure is None else "error: cannot draw"
-            print(
-                f"{prefix} {path}: run select_wheel_frames.py first ({exc})",
-                file=sys.stderr,
-            )
+            print(f"{prefix} {path}: {fig.optional} ({exc})", file=sys.stderr)
             code = 0 if args.figure is None else 1
     for path in [*drawn, *tail]:
         print(path)
     if not tail:
-        print(f"{macros.name} not written: fig-methods.pdf reads no data")
+        pdfs = ", ".join(f"fig-{n}.pdf" for n in names)
+        print(f"{macros.name} not written: {pdfs} reads no data")
     if args.figure is not None and code == 0:
-        print(f"fig-{args.figure}.pdf: {FIGURES[args.figure]}")
+        print(f"fig-{args.figure}.pdf: {FIGURES[args.figure].what}")
     return code
 
 

@@ -278,12 +278,12 @@ def test_plot_help_lists_every_figure_from_the_one_table(capsys):
     import plot_case_study_csme2026 as plot
 
     text = _help("plot_case_study_csme2026", capsys)
-    for name, what in plot.FIGURES.items():
-        assert f"{name} {what}" in text, name
+    for name, fig in plot.FIGURES.items():
+        assert f"{name} {fig.what}" in text, name
     # The docstring itself holds no copy of the list.
     source = (SCRIPTS / "plot_case_study_csme2026.py").read_text(encoding="utf-8")
-    for what in plot.FIGURES.values():
-        assert source.count(what) == 1, what
+    for fig in plot.FIGURES.values():
+        assert source.count(fig.what) == 1, fig.what
 
 
 def test_plot_draws_every_figure_of_the_table_and_no_other():
@@ -293,8 +293,9 @@ def test_plot_draws_every_figure_of_the_table_and_no_other():
     )
 
     assert set(CASE_STUDY_FIGURES) <= set(plot.FIGURES)
-    others = set(plot.FIGURES) - set(CASE_STUDY_FIGURES)
-    assert set(plot.OTHER_FIGURES) == others
+    # make_all draws exactly the figures without their own draw function.
+    by_make_all = {n for n, fig in plot.FIGURES.items() if fig.draw is None}
+    assert by_make_all == set(CASE_STUDY_FIGURES)
 
 
 @pytest.mark.parametrize(
