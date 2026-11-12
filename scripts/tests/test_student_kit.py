@@ -1144,3 +1144,104 @@ def test_speeds_at_06_counts_only_mountings_with_a_motor_id(tmp_path):
         path = tmp_path / folder / "R5-L-m9_C_b060p040_x.parquet"
         _write_run(path, [("R5-L-m9_C_b060p040_rep01_20261024_100000", hold)])
     assert cs.speeds_at_06(tmp_path) == {"db17-r5-left-m9": 0.0}
+
+
+# ------------------------------------------------- one figure at a time
+
+FIGURE_NAMES = (
+    "small-duty",
+    "step-06",
+    "step-10",
+    "hysteresis",
+    "rest-noise",
+    "methods",
+    "wheel-overlay",
+)
+
+
+@pytest.fixture(scope="module")
+def synthetic_data(tmp_path_factory):
+    from synthetic_case_study import write_case_study_data
+
+    data = tmp_path_factory.mktemp("data")
+    write_case_study_data(data, cs.MOTOR, cs.LABEL)
+    return data
+
+
+def _pdfs(folder: Path) -> list[str]:
+    return sorted(p.name for p in folder.glob("*.pdf"))
+
+
+@pytest.mark.parametrize("name", [n for n in FIGURE_NAMES if n != "wheel-overlay"])
+def test_figure_option_draws_only_that_figure(synthetic_data, tmp_path, name, capsys):
+    import plot_case_study_csme2026 as script
+
+    figures = tmp_path / "figures"
+    argv = ["--data", str(synthetic_data), "--figures", str(figures)]
+    assert script.main([*argv, "--figure", name]) == 0, capsys.readouterr().err
+    assert _pdfs(figures) == [f"fig-{name}.pdf"]
+    # All macros are written, so the report stays consistent.
+    text = (figures / "results.tex").read_text(encoding="utf-8")
+    assert "\\newcommand{\\StopDuty}{0.10}" in text
+    lines = capsys.readouterr().out.splitlines()
+    # One line names the figure and what it shows.
+    shown = [line for line in lines if line.startswith(f"fig-{name}.pdf: ")]
+    assert len(shown) == 1
+    assert len(shown[0]) > len(f"fig-{name}.pdf: ") + 10
+
+
+def test_figure_option_names_the_p_question_of_the_figures_that_test_one(
+    synthetic_data, tmp_path, capsys
+):
+    import plot_case_study_csme2026 as script
+
+    expected = {"small-duty": "(P1)", "step-10": "(P2)", "hysteresis": "(P3)"}
+    for name, question in expected.items():
+        argv = ["--data", str(synthetic_data), "--figures", str(tmp_path / name)]
+        assert script.main([*argv, "--figure", name]) == 0
+        out = capsys.readouterr().out
+        assert f"fig-{name}.pdf: " in out and question in out
+
+
+def test_figure_option_rejects_an_unknown_name(capsys):
+    import plot_case_study_csme2026 as script
+
+    with pytest.raises(SystemExit) as exc:
+        script.parse_args(["--figure", "step-6"])
+    assert exc.value.code == 2
+    err = capsys.readouterr().err
+    assert "small-duty" in err and "wheel-overlay" in err
+
+
+def test_wheel_overlay_alone_without_frames_fails_and_says_why(
+    synthetic_data, tmp_path, capsys
+):
+    import plot_case_study_csme2026 as script
+
+    figures = tmp_path / "figures"
+    argv = [
+        "--data",
+        str(synthetic_data),
+        "--figures",
+        str(figures),
+        "--wheel-frames",
+        str(tmp_path / "no_frames"),
+        "--figure",
+        "wheel-overlay",
+    ]
+    assert script.main(argv) == 1
+    err = capsys.readouterr().err
+    assert err.startswith("error:") and "select_wheel_frames.py" in err
+    assert _pdfs(figures) == []
+
+
+def test_without_figure_option_all_figures_are_drawn(synthetic_data, tmp_path, capsys):
+    import plot_case_study_csme2026 as script
+
+    figures = tmp_path / "figures"
+    argv = ["--data", str(synthetic_data), "--figures", str(figures)]
+    argv += ["--wheel-frames", str(tmp_path / "no_frames")]
+    assert script.main(argv) == 0
+    drawn = [f"fig-{n}.pdf" for n in FIGURE_NAMES if n != "wheel-overlay"]
+    assert _pdfs(figures) == sorted(drawn)
+    assert (figures / "results.tex").is_file()

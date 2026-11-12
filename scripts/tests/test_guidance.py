@@ -69,6 +69,14 @@ def test_plot_help_says_the_defaults_reproduce_the_article(capsys):
     assert "db17-r5-left-m9" in text and "R5-L-m9" in text
 
 
+def test_plot_help_tells_students_to_draw_one_figure_at_a_time(capsys):
+    text = _help("plot_case_study_csme2026", capsys)
+    assert "--figure" in text
+    order = ["small-duty", "step-06", "step-10", "hysteresis", "rest-noise"]
+    positions = [text.find(f"--figure {name}") for name in order]
+    assert -1 not in positions and positions == sorted(positions), positions
+
+
 def test_folder_name_error_shows_the_placeholder_and_an_example():
     with pytest.raises(ValueError) as exc:
         layout.parse_motor_folder("db17-r5-lef-m9")

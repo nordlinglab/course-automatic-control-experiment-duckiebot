@@ -105,7 +105,7 @@ The steps are those of [From video to figures](#from-video-to-figures).
 | `scripts/track_video.py` | Step 2: tracks the marker, hub, and sync LED in one video and writes its frame table `frames/<run>.parquet`; prints the row for `runs.csv`. |
 | `scripts/process_raw.py` | Step 3: synchronises the Pi command log with the video through the LED and computes wheel angle, speed, acceleration, and input, with uncertainty, into `data/processed/`. |
 | `scripts/quality_report.py` | Step 3: writes `quality.md` in the motor folders you name, with the checks, warnings, and recommendations. |
-| `scripts/plot_case_study_csme2026.py` | Step 4: fits the models, draws seven figures (small duty, step to 0.6, step to 1.0, hysteresis, rest noise, methods, wheel overlay), and writes their numbers as LaTeX macros in `results.tex`. |
+| `scripts/plot_case_study_csme2026.py` | Step 4: fits the models, draws one figure at a time with `--figure` (small duty, step to 0.6, step to 1.0, hysteresis, rest noise, methods, wheel overlay), and writes the numbers as LaTeX macros in `results.tex`. |
 | `scripts/select_wheel_frames.py` | Step 4, optional, before the figures: picks the video frames shown in the wheel-overlay figure. |
 | `scripts/duckiebot_analysis/` | The library the scripts import: `tracking/` (video and blob tracking), `data/` (file formats and Pi logs), `analysis/` (angle, sync, processing, quality, case study), `models/`, and `visualization/` (figures). |
 | `scripts/tests/` | Tests of the scripts; `pytest scripts/tests` checks your installation. |
