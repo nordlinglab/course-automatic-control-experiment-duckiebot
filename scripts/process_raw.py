@@ -10,9 +10,10 @@ skipped with a message. A floor run whose frame table has the spoke columns
 of scripts/track_video.py takes its wheel angle from the spokes (§9.5); one
 without them keeps the marker angle, with a note.
 
-Example:
+Examples:
+    python scripts/process_raw.py data/raw/db17-r5-left-m9
     python scripts/process_raw.py data/raw/db17-r5-left-m9 \\
-        --run R5-L-m9_C_b060p040_rep01-03_20261105
+        --run R5-L-m9_C_b060p040_rep01-03_<YYYYMMDD>
 """
 
 from __future__ import annotations
@@ -22,13 +23,14 @@ import sys
 from pathlib import Path
 
 from duckiebot_analysis.analysis.process import ProcessParams, process_folder
+from duckiebot_analysis.cli import HelpFormatter
 from duckiebot_analysis.data.layout import processed_folder
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     """Parse the command line."""
     defaults = ProcessParams()
-    p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    p = argparse.ArgumentParser(description=__doc__, formatter_class=HelpFormatter)
     p.add_argument(
         "folder",
         type=Path,
@@ -40,7 +42,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         type=Path,
         help="output folder (default: data/processed/<same name>)",
     )
-    p.add_argument("--run", nargs="+", action="extend", help="process only these runs")
+    p.add_argument(
+        "--run",
+        nargs="+",
+        action="extend",
+        help="process only these runs, named without extension (default: every "
+        "run in runs.csv)",
+    )
     p.add_argument(
         "--n-min", type=int, default=defaults.n_min, help="minimum marker pixels (§9.2)"
     )
