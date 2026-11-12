@@ -70,6 +70,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="LaTeX macro file to write (default: <figures>/results.tex)",
     )
     p.add_argument(
+        "--debug",
+        action="store_true",
+        help="show the traceback of an unexpected error",
+    )
+    p.add_argument(
         "--wheel-frames",
         type=Path,
         default=WHEEL_FRAMES_DIR,
@@ -79,8 +84,24 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Compute the results and write the figures and the macro file."""
+    """Run the case study; report any error in one line, not a traceback.
+
+    An expected error, in the data or the arguments, prints ``error: <why>``;
+    any other prints ``error: unexpected <type>: <message>``, or its traceback
+    with --debug. Both return 1.
+    """
     args = parse_args(argv)
+    try:
+        return _run(args)
+    except Exception as exc:
+        if args.debug:
+            raise
+        print(f"error: unexpected {type(exc).__name__}: {exc}", file=sys.stderr)
+        return 1
+
+
+def _run(args: argparse.Namespace) -> int:
+    """Compute the results and write the figures and the macro file."""
     figures = args.figures
     macros = args.macros if args.macros is not None else figures / "results.tex"
     command = f"{COMMAND} --folder {args.folder} --label {args.label}"

@@ -16,6 +16,7 @@ from pathlib import Path
 import numpy as np
 
 from duckiebot_analysis.analysis.case_study import (
+    DUTY_TOL,
     FINAL_S,
     REST_EXCEEDANCE,
     CaseStudy,
@@ -65,6 +66,14 @@ def write_macros(path: Path, macros: dict[str, str], command: str) -> None:
         "% data/processed/ and data/raw/ by:",
         f"%   {command}",
     ]
+    if "NMotors" in macros:
+        lines += [
+            "% NMotors counts motor mountings (motor folders): moving a motor to",
+            "% another Duckiebot or side can change its parameters a little, so a",
+            "% motor's model holds for that robot and side, and a motor tested on",
+            "% two robots or sides counts once per mounting; SpeedSixMin and",
+            "% SpeedSixMax range over the same mountings.",
+        ]
     lines += [f"\\newcommand{{\\{k}}}{{{v}}}" for k, v in macros.items()]
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
@@ -87,8 +96,14 @@ def _step_macros(prefix: str, s: StepResult) -> dict[str, str]:
         "RmsD": fmt(fd.rms_rel * 100, 1),
         "Change": fmt(change, 1),
         "Band": fmt(SETTLING_BAND * change, 2),
-        "NoiseRms": fmt(float(np.sqrt(np.nanmean(noise**2))) / change * 100, 1),
     }
+    if change == 0:
+        # The noise is given as a share of the change of the step.
+        raise ValueError(
+            f"cannot compute {prefix}NoiseRms: the mean speed does not change "
+            f"over the step (initial = final = {i.initial:.2f} rad/s)"
+        )
+    out["NoiseRms"] = fmt(float(np.sqrt(np.nanmean(noise**2))) / change * 100, 1)
     if math.isfinite(i.settling_time_s):
         out["Settle"] = fmt(i.settling_time_s * MS, 0)
     if math.isfinite(i.overshoot):
@@ -117,7 +132,7 @@ def _ripple_sd(s: StepResult) -> float:
 def _level(cs: CaseStudy, duty: float, macro: str) -> tuple[float, float]:
     """Return the mean and sd of the speed at the rising level at duty."""
     for lv in cs.e1_levels:
-        if math.isclose(lv.duty, duty) and lv.rising:
+        if math.isclose(lv.duty, duty, rel_tol=0.0, abs_tol=DUTY_TOL) and lv.rising:
             return lv.mean, lv.sd
     raise ValueError(
         f"cannot compute {macro}: the forward E1 sweep has no rising level at duty "
@@ -176,10 +191,29 @@ def _check_reportable(cs: CaseStudy) -> None:
         )
 
 
-def _dropped(cs: CaseStudy, trials: list[str]) -> float:
+def _dropped(cs: CaseStudy, trials: list[str], macro: str) -> float:
+    """Return the percentage of frames the phone dropped in the trials."""
     rows = [cs.trials[t] for t in trials]
     lost = sum(r["n_dropped"] for r in rows)
-    return float(100 * lost / (lost + sum(r["n_frames"] for r in rows)))
+    total = lost + sum(r["n_frames"] for r in rows)
+    if total == 0:
+        raise ValueError(
+            f"cannot compute {macro}: trials.parquet counts no frames, filmed or "
+            f"dropped, in {', '.join(trials) or 'no trial'}; process the folder "
+            "again with scripts/process_raw.py"
+        )
+    return float(100 * lost / total)
+
+
+def _run_k(meta: dict, run: str, macro: str) -> float:
+    """Return the k of a processed run's metadata (§11.1)."""
+    k = meta.get("k")
+    if k is None:
+        raise ValueError(
+            f"cannot compute {macro}: the metadata of the {run} run hold no k; "
+            "process the folder again with scripts/process_raw.py"
+        )
+    return float(k)
 
 
 def case_study_macros(cs: CaseStudy) -> dict[str, str]:
@@ -238,15 +272,26 @@ def case_study_macros(cs: CaseStudy) -> dict[str, str]:
         "StartStopRatio": fmt(up06.fit.tau_s / down0.fit.tau_s, 1),
         "NTrials": str(len(rows)),
         "NTrialsLed": str(sum(r["sync"] == "log+led" for r in rows)),
-        "DroppedAll": fmt(_dropped(cs, list(cs.trials)), 1),
+        "DroppedAll": fmt(_dropped(cs, list(cs.trials), "DroppedAll"), 1),
         # E1 is the forward and the backward sweep, both reported.
-        "DroppedEOne": fmt(_dropped(cs, [cs.e1.trial, cs.e1_neg_trial]), 1),
-        "DroppedETwo": fmt(_dropped(cs, cs.e2_trials), 1),
-        "DroppedETwoMax": fmt(max(_dropped(cs, [t]) for t in cs.e2_trials), 0),
+        "DroppedEOne": fmt(
+            _dropped(cs, [cs.e1.trial, cs.e1_neg_trial], "DroppedEOne"), 1
+        ),
+        "DroppedETwo": fmt(_dropped(cs, cs.e2_trials, "DroppedETwo"), 1),
+        "DroppedETwoMax": fmt(
+            max(_dropped(cs, [t], "DroppedETwoMax") for t in cs.e2_trials), 0
+        ),
         "TimingSd": fmt(cs.trials[cs.e2_trials[0]]["timing_sd_s"] * MS, 1),
-        "KETwo": fmt(cs.meta_e2["k"], 2),
-        "KEOne": fmt(cs.meta_e1["k"], 2),
+        "KETwo": fmt(_run_k(cs.meta_e2, "E2", "KETwo"), 2),
+        "KEOne": fmt(_run_k(cs.meta_e1, "E1", "KEOne"), 2),
         "CallMs": fmt(cs.call_s * MS, 1),
+        # NMotors counts motor mountings (motor folders), not motors. Each
+        # student group gets its own Duckiebot with two motors; moving a motor
+        # to another robot or side can change its parameters a little, so its
+        # model holds for that Duckiebot and side, and a motor tested on two
+        # robots or sides counts once per mounting, which also keeps the
+        # results of different groups apart. SpeedSixMin and
+        # SpeedSixMax are the extremes over the mountings.
         "NMotors": str(len(cs.speeds_06)),
         "SpeedSixMin": fmt(min(cs.speeds_06.values()), 1),
         "SpeedSixMax": fmt(max(cs.speeds_06.values()), 1),

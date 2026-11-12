@@ -338,7 +338,8 @@ def make_all(cs: CaseStudy, figures: Path, macros: Path, command: str) -> list[P
     \\input from the article folder.
 
     The macros are computed first, so that data lacking a reported number
-    stop the run before any file is written.
+    stop the run before any file is written, and both folders are created
+    before the first figure, so that write_macros cannot fail after it.
 
     Returns:
         The paths written.
@@ -348,6 +349,7 @@ def make_all(cs: CaseStudy, figures: Path, macros: Path, command: str) -> list[P
     """
     macro_values = case_study_macros(cs)
     figures.mkdir(parents=True, exist_ok=True)
+    macros.parent.mkdir(parents=True, exist_ok=True)
     paths = {
         "small": figures / "fig-small-duty.pdf",
         "step06": figures / "fig-step-06.pdf",
