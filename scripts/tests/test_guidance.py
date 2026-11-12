@@ -200,6 +200,30 @@ def test_plot_derives_the_label_from_the_folder(folder, label):
     assert plot.label_from_folder(folder) == label
 
 
+@pytest.mark.parametrize(
+    "folder",
+    [
+        "data/raw/db17-r5-left-m9",
+        "raw/db17-cherry-left-m5",
+        "db17-r5-both-m9-m10",
+        "db17-R5-left-m9",
+        "not-a-motor-folder",
+        "",
+    ],
+)
+def test_plot_label_from_folder_rejects_what_is_no_one_wheel_folder_name(
+    folder, monkeypatch
+):
+    import plot_case_study_csme2026 as plot
+
+    def no_configure(*args):
+        raise AssertionError("label_from_folder must not call configure")
+
+    monkeypatch.setattr(plot, "configure", no_configure)
+    with pytest.raises(ValueError):
+        plot.label_from_folder(folder)
+
+
 def test_plot_defaults_reproduce_the_article():
     import plot_case_study_csme2026 as plot
 

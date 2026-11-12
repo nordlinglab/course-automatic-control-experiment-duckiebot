@@ -176,17 +176,27 @@ def label_from_folder(folder: str) -> str:
 
     The article's folder, db17-cherry-left-m5, gives its label R3-L; any other
     folder db17-r<n>-<left|right>-<motor> gives R<n>-<L|R>-<motor>, as the Pi
-    names the runs, such as R5-L-m9 for db17-r5-left-m9. The folder name is
-    checked by configure() before.
+    names the runs, such as R5-L-m9 for db17-r5-left-m9.
 
     Raises:
-        ValueError: If the robot is not named r<n>, or the folder is an older
-            one without a motor id, such as db17-r5-left, so that --label must
-            be given.
+        ValueError: If folder is a path, not a motor folder name, or a both
+            folder, or if the robot is not named r<n>, or the folder is an
+            older one without a motor id, such as db17-r5-left, so that
+            --label must be given.
     """
+    if not folder or Path(folder).name != folder:
+        raise ValueError(
+            f"{folder!r} is not a folder name; --folder takes the motor folder "
+            "name only, such as db17-r5-left-m9"
+        )
     if folder == MOTOR:
         return LABEL
     robot, side = parse_motor_folder(folder)
+    if side == "both":
+        raise ValueError(
+            f"{folder}: the case study analyses one wheel; give a left or right "
+            "motor folder name, such as db17-r5-left-m9"
+        )
     ids = motor_ids(folder)
     number = re.fullmatch(r"r(\d+)", robot)
     if number is None or not ids:
