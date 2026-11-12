@@ -502,7 +502,7 @@ def read_pi_log(
 
     The trial defaults to the file name stem (without `_events` for a
     `motor-trial` log), and the motor of a `daisy-task1` log to that of its motor
-    folder, `data/raw/db17-<robot>-<motor>[-<id>...]/`.
+    folder, `data/raw/db17-<robot>-<position>-<motor>/`.
 
     Raises:
         ValueError: As `parse_pi_log`.

@@ -4,14 +4,15 @@
 """Process a motor folder into angle, speed, acceleration, and input.
 
 Step 3 of README.md, From video to figures: reads
-``data/raw/db17-<robot>-<motor>-<id>/`` and writes ``<run>.parquet`` per run
+``data/raw/db17-<robot>-<position>-<motor>/`` and writes ``<run>.parquet`` per run
 and ``trials.parquet`` (data/schema.md §11). Runs without a frame table are
 skipped with a message. A floor run whose frame table has the spoke columns
 of scripts/track_video.py takes its wheel angle from the spokes (§9.5); one
 without them keeps the marker angle, with a note.
 
 Example:
-    python scripts/process_raw.py data/raw/db17-daisy-left --run L_Sweep_20261015_012223
+    python scripts/process_raw.py data/raw/db17-r5-left-m9 \\
+        --run R5-L-m9_C_b060p040_rep01-03_20261105
 """
 
 from __future__ import annotations
@@ -29,7 +30,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     defaults = ProcessParams()
     p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     p.add_argument(
-        "folder", type=Path, help="motor folder data/raw/db17-<robot>-<motor>-<id>"
+        "folder",
+        type=Path,
+        help="motor folder data/raw/db17-<robot>-<position>-<motor>, "
+        "such as data/raw/db17-r5-left-m9",
     )
     p.add_argument(
         "--out",

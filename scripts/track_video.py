@@ -11,7 +11,7 @@ unless --force is given.
 
 Example:
     python scripts/track_video.py VIDEO.mp4 \\
-        --folder data/raw/db17-daisy-left --mode stand \\
+        --folder data/raw/db17-r5-left-m9 --mode stand \\
         --marker-colour blue --led-colour green \\
         --camera "phone, 1920x1080 H.264 30 fps"
 
@@ -47,7 +47,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--folder",
         type=Path,
         required=True,
-        help="motor folder data/raw/db17-<robot>-<motor>-<id>",
+        help="motor folder data/raw/db17-<robot>-<position>-<motor>, "
+        "such as data/raw/db17-r5-left-m9",
     )
     ap.add_argument("--mode", choices=("stand", "floor"), required=True)
     ap.add_argument(
@@ -101,7 +102,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     ap.add_argument(
         "--floor-led-radius", type=float, help="floor: LED search radius in px"
     )
-    ap.add_argument("--experiment", help="runs.csv experiment")
+    ap.add_argument(
+        "--experiment",
+        help="runs.csv experiment: A-dense for E1 (the dense sweep, both "
+        "directions in one video) and C for E2; for other clips A-sweep, B, B+D, "
+        "E-air, or E-floor",
+    )
     ap.add_argument(
         "--sync", choices=SYNC_LEVELS, help="runs.csv synchronisation level"
     )
