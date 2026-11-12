@@ -51,7 +51,7 @@ The steps are those of [From video to figures](#from-video-to-figures).
 | `doc/template_Nordling2026_LatexExample/` | Example report: copy it to start your group report. |
 | `doc/lecture_Nordling2026_Exp2/` | Slides of the Experiment 2 lecture. |
 | `assets/image/` | Screenshots for the step-by-step instructions. |
-| `scripts/requirements.txt` | Python packages the scripts need. |
+| `requirements.txt` | Python packages the scripts need. |
 | `scripts/track_video.py` | Step 2: tracks the marker, hub, and sync LED in one video and writes its frame table `frames/<run>.parquet`; prints the row for `runs.csv`. |
 | `scripts/process_raw.py` | Step 3: synchronises the Pi command log with the video through the LED and computes wheel angle, speed, acceleration, and input, with uncertainty, into `data/processed/`. |
 | `scripts/quality_report.py` | Step 3: writes `quality.md` in the motor folders you name, with the checks, warnings, and recommendations. |
@@ -70,7 +70,7 @@ From the repository root:
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-pip install -r scripts/requirements.txt
+pip install -r requirements.txt
 ```
 
 On Windows in Git Bash, activate with `source .venv/Scripts/activate`.
