@@ -682,3 +682,30 @@ def _write_mapping_file(folder: Path, mapping: dict) -> None:
     (folder / "pi" / "motor_mapping.json").write_text(
         json.dumps(mapping), encoding="utf-8"
     )
+
+
+@pytest.mark.parametrize("old_in", ["frames", "runs.csv"])
+def test_track_video_stops_at_a_run_tracked_under_its_old_id(folder, old_in, capsys):
+    import track_video
+
+    assert _run(str(folder)).returncode == 0
+    # Tracked before the run id dropped a doubled extension whole.
+    old = folder / "frames" / "V1.mp4.parquet"
+    runs = folder / "runs.csv"
+    if old_in == "frames":
+        old.write_bytes(b"old")
+    else:
+        with open(runs, "a", encoding="utf-8", newline="") as fh:
+            fh.write("V1.mp4" + "," * (len(RUNS_COLUMNS) - 1) + "\n")
+    runs_before = runs.read_bytes()
+    video = folder / "V1.mp4.MOV"
+    argv = [str(video), "--folder", str(folder), "--mode", "stand"]
+    assert track_video.main([*argv, "--camera", "c"]) == 1
+    err = capsys.readouterr().err
+    line = next(x for x in err.splitlines() if x.startswith("error:"))
+    assert "V1.mp4" in line and "V1" in line and "--force" in line
+    assert "runs.csv" in line and "Traceback" not in err
+    # Nothing is deleted or written.
+    assert runs.read_bytes() == runs_before
+    assert old.exists() == (old_in == "frames")
+    assert not (folder / "frames" / "V1.parquet").exists()

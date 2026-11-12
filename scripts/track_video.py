@@ -35,6 +35,7 @@ article's recordings used a white marker and a red LED.
 from __future__ import annotations
 
 import argparse
+import csv
 import sys
 from pathlib import Path
 
@@ -168,6 +169,19 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return ap.parse_args(argv)
 
 
+def tracked_as(folder: Path, old: str) -> list[str]:
+    """Return where a run is already recorded: its frame table, runs.csv, both."""
+    found = []
+    if frames_path(folder, old).exists():
+        found.append(str(frames_path(folder, old)))
+    runs = folder / "runs.csv"
+    if runs.is_file():
+        with open(runs, encoding="utf-8", errors="replace", newline="") as fh:
+            if any(row.get("run") == old for row in csv.DictReader(fh)):
+                found.append(f"a row of {runs}")
+    return found
+
+
 def main(argv: list[str] | None = None) -> int:
     """Track the video, write the frame table, and print the runs.csv row."""
     args = parse_args(argv)
@@ -183,6 +197,19 @@ def main(argv: list[str] | None = None) -> int:
             f"note: {args.video.name} has more than one extension; its run is {run}",
             file=sys.stderr,
         )
+        # Tracked before under the old run id, Path.stem: a second frame table
+        # and runs.csv row of the same video would count it twice.
+        old = tracked_as(args.folder, args.video.stem)
+        if old and not args.force:
+            print(
+                f"error: {args.video.name} was tracked before as run "
+                f"{args.video.stem} ({' and '.join(old)}), but its run is now "
+                f"{run}; to track it again, delete that frame table and its "
+                "runs.csv row, or keep the old ones and do not track it again; "
+                "--force tracks it anyway, beside the old ones",
+                file=sys.stderr,
+            )
+            return 1
     out = frames_path(args.folder, run)
     if out.exists() and not args.force:
         print(
