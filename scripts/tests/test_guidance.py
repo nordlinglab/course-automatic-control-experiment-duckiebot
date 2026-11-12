@@ -205,14 +205,72 @@ def test_plot_defaults_reproduce_the_article():
 
     args = plot.parse_args([])
     assert args.folder == cs.MOTOR
-    assert plot.resolve_label(args) == cs.LABEL == "R3-L"
+    assert plot.resolve_config(args) == cs.ARTICLE
+    assert cs.ARTICLE.label == cs.LABEL == "R3-L"
 
 
 def test_plot_label_overrides_the_derived_one():
     import plot_case_study_csme2026 as plot
 
     args = plot.parse_args(["--folder", "db17-r5-left-m9", "--label", "X1"])
-    assert plot.resolve_label(args) == "X1"
+    assert plot.resolve_config(args) == cs.configure("db17-r5-left-m9", "X1")
+
+
+def test_plot_takes_an_old_style_folder_with_its_label():
+    import plot_case_study_csme2026 as plot
+
+    args = plot.parse_args(["--folder", "db17-r5-left", "--label", "R5-L"])
+    assert plot.resolve_config(args) == cs.configure("db17-r5-left", "R5-L")
+
+
+def test_plot_asks_for_the_label_of_an_old_style_folder(tmp_path, capsys):
+    import plot_case_study_csme2026 as plot
+
+    # A folder named before motor ids were required has no id to derive from.
+    code = plot.main(["--data", str(tmp_path), "--folder", "db17-r5-left"])
+    err = capsys.readouterr().err
+    assert code == 1
+    assert err.startswith("error:") and "--label" in err
+    assert "Traceback" not in err and len(err.strip().splitlines()) == 1
+
+
+def test_plot_validates_the_folder_once(tmp_path, monkeypatch, capsys):
+    import plot_case_study_csme2026 as plot
+
+    calls = []
+
+    def counting(folder, label):
+        calls.append((folder, label))
+        return cs.configure(folder, label)
+
+    monkeypatch.setattr(plot, "configure", counting)
+    argv = ["--data", str(tmp_path), "--folder", "db17-r5-left-m9"]
+    assert plot.main([*argv, "--figures", str(tmp_path / "figures")]) == 1
+    assert len(calls) == 1, calls
+    assert "error:" in capsys.readouterr().err
+
+
+def test_plot_help_lists_every_figure_from_the_one_table(capsys):
+    import plot_case_study_csme2026 as plot
+
+    text = _help("plot_case_study_csme2026", capsys)
+    for name, what in plot.FIGURES.items():
+        assert f"{name} {what}" in text, name
+    # The docstring itself holds no copy of the list.
+    source = (SCRIPTS / "plot_case_study_csme2026.py").read_text(encoding="utf-8")
+    for what in plot.FIGURES.values():
+        assert source.count(what) == 1, what
+
+
+def test_plot_draws_every_figure_of_the_table_and_no_other():
+    import plot_case_study_csme2026 as plot
+    from duckiebot_analysis.visualization.case_study_figures import (
+        CASE_STUDY_FIGURES,
+    )
+
+    assert set(CASE_STUDY_FIGURES) <= set(plot.FIGURES)
+    others = set(plot.FIGURES) - set(CASE_STUDY_FIGURES)
+    assert set(plot.OTHER_FIGURES) == others
 
 
 @pytest.mark.parametrize(

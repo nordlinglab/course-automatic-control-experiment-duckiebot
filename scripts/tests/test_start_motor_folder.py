@@ -459,8 +459,96 @@ def test_a_mapping_without_the_motor_leaves_the_placeholder(folder, mapping):
     assert "motor_mapping.json" in out.stdout
 
 
-def test_next_says_to_copy_the_pi_logs_then_list_the_trials(folder):
+@pytest.mark.parametrize("channel", [2.0, "2", None, 0, 5])
+def test_a_channel_that_is_not_an_integer_1_to_4_leaves_the_placeholder(
+    folder, channel
+):
+    _write_mapping(folder, {"R5": {"L": {"channel": channel}}})
+    out = _run(str(folder))
+    assert out.returncode == 0, out.stderr
+    assert _hat_channel_lines(folder)[1] == 'hat_channel = "M?"'
+    assert "hat_channel" in out.stdout and repr(channel) in out.stdout
+
+
+def test_a_missing_mapping_is_named_with_how_to_set_the_channel(folder):
+    out = _run(str(folder))
+    assert out.returncode == 0, out.stderr
+    note = next(x for x in out.stdout.splitlines() if "motor_mapping.json" in x)
+    assert '"M?"' in note and "hat_channel" in note and "M1 to M4" in note
+
+
+def test_a_later_run_fills_in_the_channel_from_a_new_mapping(folder):
+    assert _run(str(folder)).returncode == 0
+    before = (folder / "setup.toml").read_text(encoding="utf-8").splitlines()
+    (folder / "pi" / "motor_mapping.json").write_text(
+        json.dumps(_MAPPING), encoding="utf-8"
+    )
+    out = _run(str(folder))
+    assert out.returncode == 0, out.stderr
+    after = (folder / "setup.toml").read_text(encoding="utf-8").splitlines()
+    changed = [(a, b) for a, b in zip(before, after, strict=True) if a != b]
+    assert changed == [('hat_channel = "M?"', 'hat_channel = "M2"')]
+    assert read_setup(folder).hat_channel == "M2"
+    assert any("hat_channel" in x and "M2" in x for x in out.stdout.splitlines())
+
+
+def test_a_later_run_keeps_a_channel_set_by_hand(folder):
+    assert _run(str(folder)).returncode == 0
+    setup = folder / "setup.toml"
+    text = setup.read_text(encoding="utf-8").replace('"M?"', '"M3"')
+    setup.write_text(text, encoding="utf-8")
+    (folder / "pi" / "motor_mapping.json").write_text(
+        json.dumps(_MAPPING), encoding="utf-8"
+    )
+    assert _run(str(folder)).returncode == 0
+    assert setup.read_text(encoding="utf-8") == text
+
+
+def test_no_mapping_note_once_the_channel_is_set_by_hand(folder):
+    assert _run(str(folder)).returncode == 0
+    setup = folder / "setup.toml"
+    text = setup.read_text(encoding="utf-8").replace('"M?"', '"M3"')
+    setup.write_text(text, encoding="utf-8")
+    out = _run(str(folder))
+    assert out.returncode == 0, out.stderr
+    assert "motor_mapping.json" not in out.stdout.split("Next:", 1)[0]
+
+
+def test_next_points_at_the_lab_step_that_copies_the_pi_logs(folder):
     out = _run(str(folder))
     next_text = out.stdout.split("Next:", 1)[1]
-    assert "scp" in next_text and f"{folder / 'pi'}" in next_text
-    assert next_text.index("scp") < next_text.index("--trials")
+    # README.md, In the lab, step 6, makes pi/ and copies the logs there.
+    assert "In the lab" in next_text and "step 6" in next_text
+    assert "Copy the files to the laptop" not in next_text
+    assert next_text.index("In the lab") < next_text.index("--trials")
+
+
+def test_next_only_lists_the_trials_when_the_pi_logs_are_there(folder):
+    (folder / "pi").mkdir(parents=True)
+    _write_meta(folder, _meta(_E2.format(1, 1), "2026-11-05T12:01:00", _SCHEDULE_B))
+    out = _run(str(folder))
+    next_text = out.stdout.split("Next:", 1)[1]
+    assert "--trials" in next_text and "In the lab" not in next_text
+
+
+def test_track_video_and_trials_give_a_doubled_extension_the_same_run(with_trials):
+    video = "V1.mp4.MOV"
+    out = _run(str(with_trials), "--trials", "--run", video, "--match", "_C_")
+    assert out.returncode == 0, out.stderr
+    run = {r["trial"]: r["run"] for r in _rows(with_trials)}[_E2.format(1, 1)]
+    # track_video.py refuses to overwrite the frame table of the same run.
+    frames = with_trials / "frames" / f"{run}.parquet"
+    frames.write_bytes(b"")
+    track = subprocess.run(
+        [sys.executable, "scripts/track_video.py", str(with_trials / video)]
+        + ["--folder", str(with_trials), "--mode", "stand", "--camera", "c"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert track.returncode == 1
+    assert str(frames) in track.stderr, track.stderr
+    assert "Traceback" not in track.stderr
+    note = next(x for x in track.stderr.splitlines() if x.startswith("note:"))
+    assert video in note and run in note

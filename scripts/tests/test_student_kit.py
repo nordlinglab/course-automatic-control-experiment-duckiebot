@@ -555,6 +555,49 @@ def test_a_misnamed_motor_folder_is_claimed_but_rejected(parts, fault):
         parse_motor_folder(name)
 
 
+_VIDEO_EXTS = st.sampled_from([".mp4", ".MOV", ".mov", ".MP4", ".m4v", ".M4V"])
+
+
+@pytest.mark.parametrize(
+    ("name", "run"),
+    [
+        ("V1.mp4.MOV", "V1"),
+        ("V1.MOV", "V1"),
+        ("V1.m4v", "V1"),
+        ("V1", "V1"),
+        ("V1.notes.mp4", "V1.notes"),
+        (".mp4", ".mp4"),
+    ],
+)
+def test_strip_video_extensions_examples(name, run):
+    from duckiebot_analysis.data.layout import strip_video_extensions
+
+    assert strip_video_extensions(name) == run
+
+
+@_PROPERTY
+@given(_TAGS, st.lists(_VIDEO_EXTS, min_size=1, max_size=3))
+def test_a_video_and_its_run_name_give_the_same_run(run, exts):
+    from duckiebot_analysis.data.layout import run_of_video, strip_video_extensions
+
+    video = run + "".join(exts)
+    # track_video.py takes the file, start_motor_folder.py --run the name.
+    assert run_of_video(Path("videos") / video) == run
+    assert strip_video_extensions(video) == run
+    assert strip_video_extensions(run) == run
+
+
+@_PROPERTY
+@given(st.text(max_size=30))
+def test_strip_video_extensions_is_idempotent_and_keeps_a_prefix(name):
+    from duckiebot_analysis.data.layout import strip_video_extensions
+
+    once = strip_video_extensions(name)
+    assert strip_video_extensions(once) == once
+    assert name.startswith(once)
+    assert once or not name  # never strips a name down to nothing
+
+
 def test_configure_returns_a_frozen_config_and_changes_no_module_state():
     import dataclasses
 
@@ -1172,7 +1215,9 @@ def _pdfs(folder: Path) -> list[str]:
     return sorted(p.name for p in folder.glob("*.pdf"))
 
 
-@pytest.mark.parametrize("name", [n for n in FIGURE_NAMES if n != "wheel-overlay"])
+@pytest.mark.parametrize(
+    "name", [n for n in FIGURE_NAMES if n not in ("wheel-overlay", "methods")]
+)
 def test_figure_option_draws_only_that_figure(synthetic_data, tmp_path, name, capsys):
     import plot_case_study_csme2026 as script
 
@@ -1188,6 +1233,19 @@ def test_figure_option_draws_only_that_figure(synthetic_data, tmp_path, name, ca
     shown = [line for line in lines if line.startswith(f"fig-{name}.pdf: ")]
     assert len(shown) == 1
     assert len(shown[0]) > len(f"fig-{name}.pdf: ") + 10
+
+
+def test_figure_methods_reads_no_data_and_writes_no_macros(tmp_path, capsys):
+    import plot_case_study_csme2026 as script
+
+    figures = tmp_path / "figures"
+    argv = ["--data", str(tmp_path / "no_data"), "--figures", str(figures)]
+    assert script.main([*argv, "--figure", "methods"]) == 0, capsys.readouterr().err
+    assert _pdfs(figures) == ["fig-methods.pdf"]
+    assert not (figures / "results.tex").exists()
+    out = capsys.readouterr().out
+    assert "results.tex" in out and "not written" in out
+    assert len([s for s in out.splitlines() if s.startswith("fig-methods.pdf: ")]) == 1
 
 
 def test_figure_option_names_the_p_question_of_the_figures_that_test_one(

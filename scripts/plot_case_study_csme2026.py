@@ -23,17 +23,13 @@ db17-cherry-left-m5, label R3-L). It writes fig-*.pdf into the figures
 folder and the LaTeX macros of all reported numbers into results.tex.
 
 Students: draw one figure at a time with --figure, in this order, and look at
-each figure before drawing the next:
-    small-duty   E1, where the wheel starts and stops (P1)
-    step-06      E2, the step from rest to 0.6 and its first-order fit
-    step-10      E2, the step from 0.6 to 1.0 against the model of 0.6 (P2)
-    hysteresis   E1 and E2, the speed raised and lowered (P3)
-    rest-noise   the speed noise at rest, which sets omega_min
-then optionally wheel-overlay; methods is a schematic. Without --figure, all
-seven figures are drawn, as for the article.
+each figure before drawing the next; the last two are optional:
+{figures}
+Without --figure, all seven figures are drawn, as for the article.
 
 fig-methods.pdf, the schematic of S3-S5 of the supplement, uses synthetic data
-only; fig-rest-noise.pdf shows the speed noise at rest that sets omega_min;
+only, so --figure methods reads no data and writes no results.tex;
+fig-rest-noise.pdf shows the speed noise at rest that sets omega_min;
 fig-wheel-overlay.pdf shows the tracker's output on the frames that
 scripts/select_wheel_frames.py picked from a video; until that script has
 been run, it is skipped with a message when all figures are drawn, and is an
@@ -54,14 +50,18 @@ Examples:
 """
 
 import argparse
+import dataclasses
 import re
 import sys
+from collections.abc import Callable
 from pathlib import Path
 
 from duckiebot_analysis.analysis.case_study import (
     LABEL,
     MOTOR,
     REST_EXCEEDANCE,
+    CaseStudy,
+    CaseStudyConfig,
     case_study,
     configure,
 )
@@ -80,8 +80,9 @@ from duckiebot_analysis.visualization.wheel_overlay_figure import (
 
 COMMAND = "python scripts/plot_case_study_csme2026.py"
 
-# What each figure fig-<name>.pdf shows, printed when it is written; the report
-# questions P1-P3 are those of the lecture and the report template.
+# The one list of the figures fig-<name>.pdf, in the order students draw them,
+# with what each shows, printed when it is written and listed in --help; the
+# report questions P1-P3 are those of the lecture and the report template.
 FIGURES = {
     "small-duty": "E1, where the wheel starts and stops (P1)",
     "step-06": "E2, the step from rest to 0.6 and its first-order fit",
@@ -91,6 +92,28 @@ FIGURES = {
     "methods": "schematic of the analysis methods, synthetic data only",
     "wheel-overlay": "the tracker's output on the frames of select_wheel_frames.py",
 }
+__doc__ = (__doc__ or "").replace(
+    "{figures}", "\n".join(f"    {n:<14} {what}" for n, what in FIGURES.items())
+)
+
+
+def _draw_rest_noise(
+    cs: CaseStudy | None, path: Path, args: argparse.Namespace
+) -> None:
+    assert cs is not None  # only "methods" is drawn without the case study
+    fig_rest_noise(cs.rest_noise, cs.omega_min, REST_EXCEEDANCE, path)
+
+
+# The figures that make_all does not draw, each from the case study (None for a
+# figure that reads no data), its PDF path, and the command line.
+OTHER_FIGURES: dict[
+    str, Callable[[CaseStudy | None, Path, argparse.Namespace], None]
+] = {
+    "rest-noise": _draw_rest_noise,
+    "methods": lambda cs, path, args: fig_methods(path),
+    "wheel-overlay": lambda cs, path, args: fig_wheel_overlay(path, args.wheel_frames),
+}
+NO_DATA = ("methods",)  # drawn from synthetic data only
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -124,9 +147,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--figure",
         choices=list(FIGURES),
         metavar="NAME",
-        help="draw only the figure fig-NAME.pdf and write all macros; NAME is "
-        f"one of {', '.join(FIGURES)}; students draw one at a time "
-        "(default: all seven, for the article)",
+        help="draw only the figure fig-NAME.pdf and write all macros (methods "
+        f"writes none); NAME is one of {', '.join(FIGURES)}; students draw one "
+        "at a time (default: all seven, for the article)",
     )
     p.add_argument(
         "--macros",
@@ -152,29 +175,43 @@ def label_from_folder(folder: str) -> str:
 
     The article's folder, db17-cherry-left-m5, gives its label R3-L; any other
     folder db17-r<n>-<left|right>-<motor> gives R<n>-<L|R>-<motor>, as the Pi
-    names the runs, such as R5-L-m9 for db17-r5-left-m9.
+    names the runs, such as R5-L-m9 for db17-r5-left-m9. The folder name is
+    checked by configure() before.
 
     Raises:
-        ValueError: If the folder is not a one-wheel motor folder name, or its
-            robot is not named r<n>, so that --label must be given.
+        ValueError: If the robot is not named r<n>, or the folder is an older
+            one without a motor id, such as db17-r5-left, so that --label must
+            be given.
     """
     if folder == MOTOR:
         return LABEL
-    configure(folder, "")  # refuses a path, a bad name, or a both folder
     robot, side = parse_motor_folder(folder)
+    ids = motor_ids(folder)
     number = re.fullmatch(r"r(\d+)", robot)
-    if number is None:
-        raise ValueError(
-            f"the run label cannot be derived from --folder {folder}, whose robot "
-            f"{robot!r} is not r<n>; give the start of the run names with "
-            "--label, such as --label R5-L-m9"
+    if number is None or not ids:
+        why = (
+            f"whose robot {robot!r} is not r<n>"
+            if number is None
+            else "which has no motor id at its end"
         )
-    return f"R{number[1]}-{side[0].upper()}-{motor_ids(folder)[0]}"
+        raise ValueError(
+            f"the run label cannot be derived from --folder {folder}, {why}; give "
+            "the start of the run names with --label, such as --label R5-L-m9"
+        )
+    return f"R{number[1]}-{side[0].upper()}-{ids[0]}"
 
 
-def resolve_label(args: argparse.Namespace) -> str:
-    """Return --label, or the label derived from --folder when it is not given."""
-    return args.label if args.label is not None else label_from_folder(args.folder)
+def resolve_config(args: argparse.Namespace) -> CaseStudyConfig:
+    """Return the case study of --folder, with --label or the derived label.
+
+    Raises:
+        ValueError: If --folder is not a one-wheel motor folder name, or the
+            label must be given with --label.
+    """
+    config = configure(args.folder, args.label or "")  # checks --folder once
+    if args.label is None:
+        return dataclasses.replace(config, label=label_from_folder(args.folder))
+    return config
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -186,12 +223,12 @@ def main(argv: list[str] | None = None) -> int:
     """
     args = parse_args(argv)
     try:
-        args.label = resolve_label(args)
+        config = resolve_config(args)
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
     try:
-        return _run(args)
+        return _run(args, config)
     except Exception as exc:
         if args.debug:
             raise
@@ -199,44 +236,47 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
 
-def _run(args: argparse.Namespace) -> int:
+def _run(args: argparse.Namespace, config: CaseStudyConfig) -> int:
     """Compute the results and write the figures and the macro file."""
     figures = args.figures
     macros = args.macros if args.macros is not None else figures / "results.tex"
-    command = f"{COMMAND} --folder {args.folder} --label {args.label}"
+    command = f"{COMMAND} --folder {config.folder} --label {config.label}"
     names = list(FIGURES) if args.figure is None else [args.figure]
-    try:
-        cs = case_study(args.data, configure(args.folder, args.label))
-        # make_all computes every reported number before it writes a file.
-        drawn = tuple(n for n in names if n in CASE_STUDY_FIGURES)
-        written = make_all(cs, figures, macros, command, drawn)
-    except (FileNotFoundError, ValueError) as exc:
-        print(f"error: {exc}", file=sys.stderr)
-        return 1
-    if "rest-noise" in names:
-        rest = figures / "fig-rest-noise.pdf"
-        fig_rest_noise(cs.rest_noise, cs.omega_min, REST_EXCEEDANCE, rest)
-        written.insert(-1, rest)
-    if "methods" in names:
-        methods = figures / "fig-methods.pdf"
-        fig_methods(methods)
-        written.insert(-1, methods)
-    code = 0
-    if "wheel-overlay" in names:
-        overlay = figures / "fig-wheel-overlay.pdf"
+    cs = None
+    if all(n in NO_DATA for n in names):
+        figures.mkdir(parents=True, exist_ok=True)
+        drawn: list[Path] = []
+        tail: list[Path] = []
+    else:
         try:
-            fig_wheel_overlay(overlay, args.wheel_frames)
-            written.insert(-1, overlay)
+            cs = case_study(args.data, config)
+            # make_all computes every reported number before it writes a file.
+            case = tuple(n for n in names if n in CASE_STUDY_FIGURES)
+            *drawn, macro_file = make_all(cs, figures, macros, command, case)
+            tail = [macro_file]
+        except (FileNotFoundError, ValueError) as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 1
+    code = 0
+    for name in (n for n in OTHER_FIGURES if n in names):
+        path = figures / f"fig-{name}.pdf"
+        try:
+            OTHER_FIGURES[name](cs, path, args)
+            drawn.append(path)
         except FileNotFoundError as exc:
+            if name != "wheel-overlay":
+                raise
             # Skipped when drawing all, but an error when asked for alone.
             prefix = "skipped" if args.figure is None else "error: cannot draw"
             print(
-                f"{prefix} {overlay}: run select_wheel_frames.py first ({exc})",
+                f"{prefix} {path}: run select_wheel_frames.py first ({exc})",
                 file=sys.stderr,
             )
             code = 0 if args.figure is None else 1
-    for path in written:
+    for path in [*drawn, *tail]:
         print(path)
+    if not tail:
+        print(f"{macros.name} not written: fig-methods.pdf reads no data")
     if args.figure is not None and code == 0:
         print(f"fig-{args.figure}.pdf: {FIGURES[args.figure]}")
     return code

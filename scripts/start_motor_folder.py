@@ -19,7 +19,8 @@ Step 1 of README.md, From video to figures. Without --trials, it creates the
 motor folder db17-<robot>-<position>-<motor> inside data/raw with frames/,
 pi/, manual/, an empty runs.csv and trials.csv, a setup.toml filled in for
 the course kit, and a README.md to complete (data/schema.md §2). An existing
-file is never overwritten.
+file is never overwritten, except that a hat_channel left "M?" in setup.toml is
+filled in once pi/motor_mapping.json gives it.
 
 With --trials, it reads every pi/*_meta.json that motor_trial.py wrote and
 adds one row to trials.csv for each trial not yet listed (data/schema.md §5).
@@ -52,14 +53,15 @@ from duckiebot_analysis.data.layout import (
     TRIALS_COLUMNS,
     motor_ids,
     parse_motor_folder,
+    strip_video_extensions,
 )
 
 COMMAND = "python scripts/start_motor_folder.py"
 EXAMPLE = "data/raw/db17-r5-left-m9"
-VIDEO_EXTENSIONS = (".mp4", ".mov")  # compared in lower case
 # Written when pi/motor_mapping.json does not give the channel; any string
 # passes read_setup, and this one is plainly not filled in.
 HAT_CHANNEL_PLACEHOLDER = "M?"
+HAT_CHANNEL_LINE = 'hat_channel = "{}"'
 MAPPING = "motor_mapping.json"
 NAME_RULE = (
     "Name it db17-<robot>-<position>-<motor>, such as db17-r5-left-m9: the "
@@ -79,7 +81,7 @@ motor = "{motor}"
 motor_label = "{label}"
 hat = "Adafruit DC & Stepper Motor HAT, PCA9685 at 0x60"
 # The HAT channel the motor is wired to, M1 to M4, see motor_mapping.json{source}:
-hat_channel = "{channel}"
+{channel_line}
 pwm_frequency_hz = 1600  # MotorKit default
 quantisation = "pca9685"  # motor_trial.py writes the duty straight to the HAT
 supply = "5.1 V mains adapter, powering both the Pi and the motor HAT"
@@ -190,14 +192,19 @@ def hat_channel(folder: Path, robot: str, position: str) -> tuple[str, str]:
     """
     path = folder / "pi" / MAPPING
     if not path.is_file():
-        return HAT_CHANNEL_PLACEHOLDER, ""
+        return HAT_CHANNEL_PLACEHOLDER, (
+            f'note: {path} is missing, so hat_channel in setup.toml is "M?"; copy '
+            f"{MAPPING} from the Pi into pi/ and run this command again to fill "
+            "it in, or set it by hand to the channel M1 to M4 the motor is wired to"
+        )
     wheels = ("L", "R") if position == "both" else (position[0].upper(),)
     try:
         mapping = json.loads(path.read_text(encoding="utf-8"))
         channels = []
         for wheel in wheels:
             number = mapping[robot.upper()][wheel]["channel"]
-            if isinstance(number, bool) or number not in (1, 2, 3, 4):
+            # Only an int: 2.0 == 2 would give "M2.0", and True == 1.
+            if type(number) is not int or number not in (1, 2, 3, 4):
                 raise ValueError(f"channel {number!r} is not 1 to 4")
             channels.append(f"M{number}")
     except (ValueError, KeyError, TypeError) as exc:
@@ -213,7 +220,8 @@ def create(folder: Path, robot: str, position: str, labels: tuple[str, ...]) -> 
     """Create the motor folder's subfolders and files; keep any that exist."""
     label = ", ".join(labels)
     channel, problem = hat_channel(folder, robot, position)
-    if problem:
+    setup = folder / "setup.toml"
+    if problem and (not setup.exists() or _placeholder_line(setup) is not None):
         print(problem)
     files = {
         "README.md": README.format(
@@ -229,7 +237,7 @@ def create(folder: Path, robot: str, position: str, labels: tuple[str, ...]) -> 
             robot=robot,
             motor=position,
             label=label,
-            channel=channel,
+            channel_line=HAT_CHANNEL_LINE.format(channel),
             source=""
             if channel == HAT_CHANNEL_PLACEHOLDER
             else f" (from pi/{MAPPING})",
@@ -245,19 +253,58 @@ def create(folder: Path, robot: str, position: str, labels: tuple[str, ...]) -> 
     for name, text in files.items():
         path = folder / name
         if path.exists():
-            kept.append(name)
+            if name != "setup.toml" or not fill_hat_channel(path, channel):
+                kept.append(name)
             continue
         with open(path, "w", encoding="utf-8", newline="\n") as fh:
             fh.write(text)
     if kept:
         print(f"left unchanged, as they already exist: {', '.join(kept)}")
     print(f"{folder} is ready.")
-    print(
-        "Next: fill in README.md and check every value in setup.toml. Then copy "
-        f"the Pi logs and {MAPPING} with scp into {folder / 'pi'} (README.md, "
-        "Copy the files to the laptop), and list the trials with\n"
-        f"  {COMMAND} {folder} --trials"
-    )
+    check = "Next: fill in README.md and check every value in setup.toml"
+    trials = f"list the trials with\n  {COMMAND} {folder} --trials"
+    if any((folder / "pi").glob("*_meta.json")):
+        print(f"{check}, then {trials}")
+    else:
+        print(
+            f"{check}. Copy the Pi logs and {MAPPING} into {folder / 'pi'} as in "
+            f"README.md, section In the lab, step 6, then {trials}"
+        )
+
+
+def _read_lines(setup: Path) -> list[str]:
+    """Return the lines of a file with their own line endings."""
+    with open(setup, encoding="utf-8", newline="") as fh:
+        return fh.read().splitlines(keepends=True)
+
+
+def _placeholder_line(setup: Path) -> int | None:
+    """Return the index of the one line hat_channel = "M?" of setup.toml, if any."""
+    old = HAT_CHANNEL_LINE.format(HAT_CHANNEL_PLACEHOLDER)
+    lines = _read_lines(setup)
+    hits = [k for k, line in enumerate(lines) if line.rstrip("\r\n") == old]
+    return hits[0] if len(hits) == 1 else None
+
+
+def fill_hat_channel(setup: Path, channel: str) -> bool:
+    """Replace a hat_channel left "M?" in setup.toml by the channel found.
+
+    Only that one line changes, and only while it is exactly as written, so a
+    value set by hand is kept.
+
+    Returns:
+        Whether the file changed.
+    """
+    k = _placeholder_line(setup)
+    if channel == HAT_CHANNEL_PLACEHOLDER or k is None:
+        return False
+    lines = _read_lines(setup)
+    old = HAT_CHANNEL_LINE.format(HAT_CHANNEL_PLACEHOLDER)
+    lines[k] = HAT_CHANNEL_LINE.format(channel) + lines[k][len(old) :]
+    with open(setup, "w", encoding="utf-8", newline="") as fh:
+        fh.write("".join(lines))
+    print(f"note: set hat_channel in {setup} to {channel}, from pi/{MAPPING}")
+    return True
 
 
 def _meta_row(path: Path) -> tuple[list[str], str]:
@@ -398,13 +445,6 @@ def add_trials(folder: Path, run: str | None, match: str | None) -> int:
     return 0
 
 
-def strip_video_extension(run: str) -> str:
-    """Return the run name without its video extensions, such as .mp4.MOV."""
-    while run.lower().endswith(VIDEO_EXTENSIONS) and run.rfind(".") > 0:
-        run = run[: run.rfind(".")]
-    return run
-
-
 def _in_header_order(row: list[str], header: list[str]) -> list[str]:
     """Place a row in TRIALS_COLUMNS order under the file's own header."""
     out = [""] * len(header)
@@ -420,8 +460,8 @@ def main(argv: list[str] | None = None) -> int:
         robot, position, labels = check_folder(args.folder)
         if args.trials:
             run = args.run
-            if run is not None and strip_video_extension(run) != run:
-                run = strip_video_extension(run)
+            if run is not None and strip_video_extensions(run) != run:
+                run = strip_video_extensions(run)
                 print(
                     f"note: --run is the video name without its extension; "
                     f"using {run} for {args.run}"

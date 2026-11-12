@@ -18,8 +18,9 @@
 
 Writes <folder>/frames/<run>.parquet and prints the run's row for runs.csv
 (§4) to stdout, so it can be appended with >>. The run identifier is the video
-file name without extension, .mp4 or .MOV. An existing frame table is never
-overwritten unless --force is given.
+file name without extension, .mp4 or .MOV; a doubled one, such as .mp4.MOV, is
+dropped whole, with a note, as start_motor_folder.py --run does. An existing
+frame table is never overwritten unless --force is given.
 
 Example:
     python scripts/track_video.py \\
@@ -45,6 +46,7 @@ from duckiebot_analysis.data.layout import (
     format_runs_row,
     frames_path,
     parse_motor_folder,
+    run_of_video,
 )
 from duckiebot_analysis.tracking.blobs import PRESETS
 from duckiebot_analysis.tracking.track import (
@@ -174,7 +176,14 @@ def main(argv: list[str] | None = None) -> int:
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
-    out = frames_path(args.folder, args.video.stem)
+    run = run_of_video(args.video)
+    if run != args.video.stem:
+        # One video, one run: start_motor_folder.py --run drops every extension.
+        print(
+            f"note: {args.video.name} has more than one extension; its run is {run}",
+            file=sys.stderr,
+        )
+    out = frames_path(args.folder, run)
     if out.exists() and not args.force:
         print(
             f"{out} exists; data/raw is never overwritten without --force",

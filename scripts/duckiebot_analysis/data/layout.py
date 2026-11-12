@@ -224,6 +224,32 @@ def motor_ids(folder: str | Path) -> tuple[str, ...]:
     return _parse_folder(folder)[2]
 
 
+# Extensions of the videos a phone records, compared in lower case.
+VIDEO_EXTENSIONS = (".mp4", ".mov", ".m4v")
+
+
+def strip_video_extensions(name: str) -> str:
+    """Return a video name without every trailing video extension.
+
+    A doubled extension, such as name.mp4.MOV made by renaming a video while
+    the file manager hides extensions, is dropped whole, so that every script
+    gives one video one run identifier; a name that is only an extension, such
+    as .mp4, is kept.
+    """
+    while name.lower().endswith(VIDEO_EXTENSIONS) and name.rfind(".") > 0:
+        name = name[: name.rfind(".")]
+    return name
+
+
+def run_of_video(video: str | Path) -> str:
+    """Return the run identifier of a video file: its name without extensions.
+
+    The last extension is dropped whatever it is, as Path.stem does, and then
+    every video extension before it, as :func:`strip_video_extensions`.
+    """
+    return strip_video_extensions(Path(video).stem)
+
+
 def frames_path(folder: str | Path, run: str) -> Path:
     """Return the frame table path ``<folder>/frames/<run>.parquet``."""
     return Path(folder) / "frames" / f"{run}.parquet"

@@ -376,7 +376,7 @@ dragging a file into the Git Bash window types its path for you.
      python scripts/select_wheel_frames.py <video-folder>/<video name>.mp4 --turns cw
      ```
 
-   `methods` draws a schematic of the method, the same for every group.
+   `methods` draws a schematic of the method, the same for every group, from no data, so it writes no `results.tex`.
    Copy the figures your report uses into its `figures/` folder:
 
    ```bash
