@@ -51,12 +51,17 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="folder holding raw/ and processed/ (default: data)",
     )
     p.add_argument(
-        "--folder", default=MOTOR, help=f"motor folder name (default: {MOTOR})"
+        "--folder",
+        default=MOTOR,
+        help="motor folder name db17-<robot>-<position>-<motor> (default: "
+        f"{MOTOR}, which with the default --label reproduces the article; for "
+        "your motor give, for example, --folder db17-r5-left-m9 --label R5-L-m9)",
     )
     p.add_argument(
         "--label",
         default=LABEL,
-        help=f"start of the run names, such as R5-L-m9 (default: {LABEL})",
+        help=f"start of the run names, such as R5-L-m9 (default: {LABEL}, the "
+        "article's)",
     )
     p.add_argument(
         "--figures",

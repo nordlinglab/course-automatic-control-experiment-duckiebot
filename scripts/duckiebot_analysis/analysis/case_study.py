@@ -97,6 +97,17 @@ class CaseStudyConfig:
     label: str  # start of the run and trial names
     channel: str  # the wheel's channel in the Pi log
 
+    # For the label R5-L-m9, the patterns below expect these names, where
+    # <date> is YYYYMMDD and <time> HHMMSS:
+    #   E1 video  R5-L-m9_A_sweep_dense_forward-backward_010to036by020_rep01_<date>
+    #     holding both trials
+    #     R5-L-m9_A_sweep_forward_010to036by020_rep01_<date>_<time> and
+    #     R5-L-m9_A_sweep_backward_010to036by020_rep01_<date>_<time>;
+    #   E2 video  R5-L-m9_C_b060p040_rep01-03_<date>
+    #     holding the trials R5-L-m9_C_b060p040_rep01_<date>_<time> and on.
+    # Exactly one processed video may match each video pattern, so an extra
+    # clip, such as a repeat, must be named so that it matches neither.
+
     @property
     def e1_run(self) -> str:
         """Pattern of the E1 run."""
@@ -483,11 +494,26 @@ def check_led_sync(trials: dict[str, dict], names: list[str]) -> None:
 
 
 def _one_run(folder: Path, pattern: str) -> Path:
-    """Return the only run of ``folder`` matching ``pattern``."""
+    """Return the only run of ``folder`` matching ``pattern``.
+
+    Raises:
+        FileNotFoundError: If none or more than one matches, saying how to fix
+            it.
+    """
     found = sorted(folder.glob(pattern))
-    if len(found) != 1:
+    if not found:
         raise FileNotFoundError(
-            f"{folder}: expected one run matching {pattern}, found {len(found)}"
+            f"{folder}: no processed run matches {pattern}; name the video so "
+            "that it matches, list it in runs.csv, and run scripts/process_raw.py"
+        )
+    if len(found) > 1:
+        names = ", ".join(p.name for p in found)
+        raise FileNotFoundError(
+            f"{folder}: {len(found)} processed runs match {pattern} ({names}), "
+            "but the case study needs exactly one. Give each extra clip a name "
+            "that does not match; then delete the extra run's row from runs.csv "
+            f"in data/raw/{folder.name}, delete its .parquet file in {folder}, "
+            "and run scripts/process_raw.py again"
         )
     return found[0]
 

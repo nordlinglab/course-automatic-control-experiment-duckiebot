@@ -443,7 +443,7 @@ def process_run(
     """Process one run of a motor folder (§9, §10).
 
     Args:
-        folder: The motor folder ``data/raw/db17-<robot>-<motor>-<id>``.
+        folder: The motor folder ``data/raw/db17-<robot>-<position>-<motor>``.
         run: Run identifier, a row of ``runs.csv``.
         params: Processing parameters; defaults as in §9.2 and §9.7.
 
@@ -830,8 +830,8 @@ def process_folder(
     its rows are dropped from ``trials.parquet``.
 
     Args:
-        folder: The motor folder ``data/raw/db17-<robot>-<motor>-<id>``.
-        out_folder: Output folder, ``data/processed/db17-<robot>-<motor>-<id>``.
+        folder: The motor folder ``data/raw/db17-<robot>-<position>-<motor>``.
+        out_folder: Output folder, ``data/processed/db17-<robot>-<position>-<motor>``.
         params: Processing parameters.
         runs: Runs to process; default every run in ``runs.csv``.
         log: Receives one message per run.

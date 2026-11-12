@@ -3,8 +3,9 @@
 
 """Motor folders and their text files (data/schema.md §2, §4, §5, §6, §8.2).
 
-A motor folder is ``data/raw/db17-<robot>-<motor>-<id>/``, or
-``db17-<robot>-both-<left id>-<right id>/`` for runs driving both motors; its
+A motor folder is ``data/raw/db17-<robot>-<position>-<motor>/``, such as
+``db17-r5-left-m9`` (position left or right, motor the label written on it), or
+``db17-<robot>-both-<left motor>-<right motor>/`` for runs driving both; its
 processed data goes to ``data/processed/`` under the same name
 (README.md, Data). Folders named before the motor identifiers were required,
 such as ``db17-daisy-left``, carry no identifier.
@@ -108,7 +109,7 @@ def _check_ids(motor: str, ids: tuple[str, ...]) -> None:
 
 
 def motor_folder_name(robot: str, motor: str, motor_ids: tuple[str, ...]) -> str:
-    """Return ``db17-<robot>-<motor>``, followed by ``-<id>`` for each motor.
+    """Return ``db17-<robot>-<position>``, followed by ``-<motor>`` for each motor.
 
     Args:
         robot: The robot the motors were mounted on during the test.
@@ -167,9 +168,11 @@ def _parse_folder(folder: str | Path) -> tuple[str, str, tuple[str, ...]]:
         _check_ids(m.group("motor"), ids)
     except ValueError:
         raise ValueError(
-            f"{name!r} is not of the form db17-<robot>-<left|right>-<id> or "
-            "db17-<robot>-both-<left id>-<right id>, with the robot and distinct ids "
-            "in lower-case letters and digits (or the older db17-<robot>-<motor>)"
+            f"{name!r} is not of the form db17-<robot>-<position>-<motor>, such as "
+            "db17-r5-left-m9, with position left or right, or "
+            "db17-<robot>-both-<left motor>-<right motor>; the robot and distinct "
+            "motor labels in lower-case letters and digits (or the older "
+            "db17-<robot>-<position>, without a motor label)"
         ) from None
     return m.group("robot"), m.group("motor"), ids
 
@@ -408,11 +411,16 @@ class Setup:
 
     Keys that §6 does not list, such as ``computer``, ``camera``, or
     ``marker``, are kept unchecked in ``extra``.
+
+    In ``db17-r5-left-m9``, ``robot`` is ``r5``, ``motor`` is ``left``, and
+    ``motor_label`` is ``m9``: despite its name, ``motor`` is the position the
+    motor was mounted in during the test (left, right, or both), and
+    ``motor_label`` identifies the motor itself.
     """
 
     robot: str
-    motor: str
-    motor_label: str | None = None
+    motor: str  # the position: left, right, or both; not the motor's label
+    motor_label: str | None = None  # the label written on the motor, such as m9
     hat: str | None = None
     hat_channel: str | None = None
     pwm_frequency_hz: float | None = None
@@ -436,7 +444,8 @@ def read_setup(folder: str | Path) -> Setup:
 
     When the folder name claims to be a motor folder
     (:func:`is_motor_folder_name`), it must follow the pattern of
-    :func:`parse_motor_folder` and ``robot`` and ``motor`` must match it. When
+    :func:`parse_motor_folder` and ``robot`` and ``motor`` (the position, such
+    as ``left``) must match it. When
     the name carries motor identifiers, ``motor_label`` must name the same
     motors, compared case-insensitively, the left before the right separated by
     a comma for ``both``.
