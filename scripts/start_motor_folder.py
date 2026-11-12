@@ -484,6 +484,23 @@ def add_trials(folder: Path, run: str | None, match: str | None) -> int:
         print(f"set the run of {filled} trial(s) to {run}")
         if matched > filled:
             print(f"kept the run of {matched - filled} trial(s) that already had one")
+    known = tracked_runs(folder)
+    unknown = [
+        f"{r[col['trial']]} ({r[col['run']]})"
+        for r in rows + new
+        if r[col["run"]] and r[col["run"]] not in known
+    ]
+    if unknown:
+        more = f", and {len(unknown) - 3} more" if len(unknown) > 3 else ""
+        print(
+            f"\n{len(unknown)} trial(s) name a run with no frame table in "
+            f"frames/ and no row in runs.csv: {', '.join(unknown[:3])}{more}\n"
+            "That is expected until you track the video. If the run is wrong, "
+            "such as one that still ends in a video extension, edit its run cell "
+            "in trials.csv, or empty that cell and run again with --run and "
+            "--match:\n"
+            f"  {COMMAND} {folder} --trials --run <video name> --match <text>"
+        )
     empty = [r[col["trial"]] for r in rows + new if not r[col["run"]]]
     if empty:
         more = f", and {len(empty) - 3} more" if len(empty) > 3 else ""
@@ -495,6 +512,17 @@ def add_trials(folder: Path, run: str | None, match: str | None) -> int:
             f"  {COMMAND} {folder} --trials --run <video name> --match <text>"
         )
     return 0
+
+
+def tracked_runs(folder: Path) -> set[str]:
+    """Return the runs with a frame table in frames/ or a row in runs.csv."""
+    known = {p.stem for p in (folder / "frames").glob("*.parquet")}
+    runs = folder / "runs.csv"
+    if runs.is_file():
+        with open(runs, encoding="utf-8-sig", errors="replace", newline="") as fh:
+            known.update(r.get("run") or "" for r in csv.DictReader(fh))
+    known.discard("")
+    return known
 
 
 def _in_header_order(row: list[str], header: list[str]) -> list[str]:

@@ -855,3 +855,32 @@ def test_track_video_takes_no_other_videos_run_for_an_old_run_id(folder, capsys)
     assert track_video.main(argv) == 1
     err = capsys.readouterr().err
     assert "tracked before" not in err and "V1.notes.parquet exists" in err
+
+
+@pytest.mark.parametrize("known_by", ["runs.csv", "frames"])
+def test_trials_reports_a_run_that_names_no_tracked_video(folder, known_by):
+    assert _run(str(folder)).returncode == 0
+    for k in (1, 2):
+        when = f"2026-11-05T12:0{k}:00"
+        _write_meta(folder, _meta(_E2.format(k, k), when, _SCHEDULE_B))
+    first, second = _E2.format(1, 1), _E2.format(2, 2)
+    assert _run(str(folder), "--trials", "--run", "V1", "--match", first).returncode == 0
+    # Filled under an older rule that kept .avi.
+    trials = folder / "trials.csv"
+    text = trials.read_text(encoding="utf-8")
+    trials.write_text(text.replace(f"{second},,", f"{second},V1.avi,"), "utf-8")
+    assert [r["run"] for r in _rows(folder)] == ["V1", "V1.avi"]
+    if known_by == "runs.csv":
+        with open(folder / "runs.csv", "a", encoding="utf-8", newline="") as fh:
+            fh.write(_runs_row("V1", "V1.mp4", "0" * 64))
+    else:
+        (folder / "frames" / "V1.parquet").write_bytes(b"")
+    before = trials.read_bytes()
+    out = _run(str(folder), "--trials")
+    assert out.returncode == 0, out.stderr
+    lines = [x for x in out.stdout.splitlines() if "V1.avi" in x]
+    assert lines and second in out.stdout
+    assert f"{first} (V1)" not in out.stdout
+    assert "--run" in out.stdout and "--match" in out.stdout
+    # A filled run is never changed.
+    assert trials.read_bytes() == before
