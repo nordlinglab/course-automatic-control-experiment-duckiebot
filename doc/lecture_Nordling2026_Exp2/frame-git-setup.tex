@@ -4,13 +4,21 @@
 % Students have no GitHub account, no git, and do not know what a fork is
 % (user, 2026-11-12). Steps 1 to 4 of the student README "Step by step";
 % screenshots are the README's own, in the repository's assets/image/.
+% Install homework and LaTeX/Overleaf: README "Install Python and FFmpeg" and "Appendix: compiling LaTeX";
+% added after a usability test with a novice student (user, 2026-11-12).
 \begin{frame}[fragile]{Before the hand-in: accounts and tools}{Step by step, with screenshots, in the README of the repository}
   \scriptsize
+  \textbf{Course repository:} \texttt{github.com/nordlinglab/course-automatic-control-experiment-duckiebot}\\
+  \alert{\textbf{Homework, before the lab:}} steps 1--4 below, and Python 3.12 and FFmpeg (README: \emph{Install Python and FFmpeg}).
+  \LaTeX{}: README \emph{Appendix: compiling LaTeX}, or Overleaf, also on an iPad.
+
+  \vspace{2pt}
   \begin{columns}[T]
-    \column{0.6\textwidth}
+    \column{0.7\textwidth}
+    \scriptsize
     \begin{enumerate}\setlength{\itemsep}{1pt}
-      \item \textbf{Everyone:} create a GitHub account at \texttt{github.com/signup}.
-      \item \textbf{Windows only:} install git from \texttt{git-scm.com}, all defaults; use \alert{Git Bash}. Everyone, once:
+      \item \textbf{Everyone:} GitHub account at \texttt{github.com/signup}; Windows: Git from \texttt{git-scm.com}, then use \alert{Git Bash}.
+      \item \textbf{Everyone, once:}
 \begin{verbatim}
 git config --global user.name "<name>"
 git config --global user.email "<email>"
@@ -25,7 +33,7 @@ git remote add upstream <course address>
       First push: macOS and Linux use a \alert{token} as password.
       \item \textbf{iPad:} Safari on github.com; analyse on a laptop.
     \end{enumerate}
-    \column{0.37\textwidth}
+    \column{0.27\textwidth}
     \centering
     \includegraphics[width=\linewidth]{github-fork-create.jpg}\\[2pt]
     \includegraphics[width=\linewidth]{github-fork-collaborators.jpg}

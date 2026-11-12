@@ -51,11 +51,14 @@
 %   The model      3-6   linear model and its three predictions P1-P3
 %   The four steps 6-14  dead zone, step to 0.6, step 0.6->1.0, hysteresis
 %   Comparing      14-16 model candidates and step quantities
-%   Measuring      16-21 wheel angle, speed and LED clock, pipeline, data checks
-%   Doing it       21-22.5 data naming; the 50 minutes and safety
+%   Measuring      16-20.5 wheel angle, speed and LED clock, pipeline, data checks
+%   Doing it       20.5-22.5 data naming; running E1 and E2 on the Pi (two
+%                  hand-out frames, 45 s together: Sam demonstrates them next);
+%                  the 50 minutes and safety
 %   Hand in        22.5-25 accounts and tools, pull request 1 (data), pull request 2 (report); the group report
+% HAND-OUTS — frame-run-pi-e1 and frame-run-pi-e2 are shown, not read aloud.
 % STOP POINT — if time runs out, frame-compare-models and frame-pipeline become
-% hand-outs; git and report are always spoken (user request: last two frames).
+% hand-outs too; git and report are always spoken (user request: last two frames).
 
 \documentclass[aspectratio=169]{beamer}
 \mode<presentation>{
@@ -130,16 +133,18 @@
 \section{Comparing models}
 \input{frame-compare-models.tex}
 
-% =============== Measuring (16-21 min) ===============
+% =============== Measuring (16-20.5 min) ===============
 \section{Measuring}
 \input{frame-wheel-angle.tex}
 \input{frame-video-sync.tex}
 \input{frame-pipeline.tex}
 \input{frame-tracking-quality.tex}
 
-% =============== Doing it (21-22.5 min) ===============
+% =============== Doing it (20.5-22.5 min) ===============
 \section{Doing it}
 \input{frame-data-naming.tex}
+\input{frame-run-pi-e1.tex}
+\input{frame-run-pi-e2.tex}
 \input{frame-fifty-minutes.tex}
 
 % =============== Hand in (22.5-25 min) ===============

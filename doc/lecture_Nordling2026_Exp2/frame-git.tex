@@ -9,13 +9,15 @@
 \begin{frame}[fragile]{Hand in by pull request (1/2): your data}{Steps 5 and 6 of the README}
   \scriptsize
   \begin{columns}[T]
-    \column{0.53\textwidth}
+    \column{0.63\textwidth}
+    \scriptsize
 \begin{verbatim}
 git switch -c group03-data
 cd data/raw/db17-r5-left-m9
-git add README.md setup.toml runs.csv
-git add trials.csv quality.md manual/*
-git add frames/*.parquet pi/*
+git add README.md setup.toml runs.csv trials.csv
+git add quality.md frames/*.parquet pi/*
+git add manual/*
+git status
 git commit -m "Add data of motor m9"
 git push -u origin group03-data
 cd ../../..
@@ -23,18 +25,18 @@ cd ../../..
     \vspace{-6pt}
     \begin{itemize}\setlength{\itemsep}{0pt}
       \item \texttt{switch -c}: start a branch for this hand-in.
-      \item \texttt{add}: choose what to save, \alert{each by name}; \texttt{git status} shows what changed.
-      \item \texttt{commit}: save it with a message that says what.
-      \item \texttt{push}: send the branch to your fork.
-      \item \texttt{git pull}: get your members' commits before you start.
+      \item \texttt{add}: choose what to save, \alert{each by name}; a missing name stages nothing on its line, so add \texttt{manual/*} only with hand measurements.
+      \item \texttt{status}: check what is staged \alert{before} you commit.
+      \item \texttt{commit}: save, with a message; \texttt{push}: send to your fork.
+      \item \texttt{git pull}: get your members' commits first.
     \end{itemize}
-    \column{0.44\textwidth}
+    \column{0.34\textwidth}
     \centering
-    \includegraphics[width=\linewidth]{github-contribute-pull-request.jpg}\\[2pt]
+    \includegraphics[width=0.9\linewidth]{github-contribute-pull-request.jpg}\\[2pt]
     \raggedright
-    On your fork: \textbf{Contribute}, \textbf{Open pull request}, to \texttt{main} of the course repository.
+    On your fork, choose branch \texttt{group03-data} first, then \textbf{Contribute}, \textbf{Open pull request}; or click \textbf{Compare \& pull request}. Target: \texttt{main} of the course repository.
 
     \vspace{2pt}
-    \textbf{PR 1 holds} only your data folder(s). A \alert{TA reviews it}: fix on the same branch and push again; the pull request updates itself. Approval comes before your report PR.
+    \textbf{PR 1 holds} only your data folder(s). A \alert{TA reviews it}: fix on the same branch, push again. The TA approves and merges it before your report PR.
   \end{columns}
 \end{frame}
