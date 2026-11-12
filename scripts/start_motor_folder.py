@@ -201,7 +201,8 @@ def hat_channel(folder: Path, robot: str, position: str) -> tuple[str, str]:
     path = folder / "pi" / MAPPING
     if not path.is_file():
         return HAT_CHANNEL_PLACEHOLDER, (
-            f'note: {path} is missing, so hat_channel in setup.toml is "M?"; copy '
+            f"note: {path} is missing, so hat_channel in setup.toml is "
+            f'"{HAT_CHANNEL_PLACEHOLDER}"; copy '
             f"{MAPPING} from the Pi into pi/ and run this command again to fill "
             "it in, or set it by hand to the channel M1 to M4 the motor is wired to"
         )
@@ -234,11 +235,13 @@ def create(folder: Path, robot: str, position: str, labels: tuple[str, ...]) -> 
     channel, problem = hat_channel(folder, robot, position)
     setup = folder / "setup.toml"
     unreadable = ""
+    lines: list[str] = []
     try:
-        placeholder = _placeholder_line(setup) if setup.exists() else None
+        lines = _read_lines(setup) if setup.exists() else []
     except UserError as exc:
         # Never rewrite a file that cannot be read; the rest is still created.
-        unreadable, placeholder = str(exc), None
+        unreadable = str(exc)
+    placeholder = _placeholder_line(lines)
     if problem and (not setup.exists() or placeholder is not None):
         print(problem)
     files = {
@@ -273,7 +276,9 @@ def create(folder: Path, robot: str, position: str, labels: tuple[str, ...]) -> 
         if path.exists():
             if name == "setup.toml" and unreadable:
                 continue
-            if name != "setup.toml" or not fill_hat_channel(path, channel):
+            if name != "setup.toml" or not fill_hat_channel(
+                path, lines, placeholder, channel
+            ):
                 kept.append(name)
             continue
         with open(path, "w", encoding="utf-8", newline="\n") as fh:
@@ -312,9 +317,8 @@ def _read_lines(setup: Path) -> list[str]:
         ) from None
 
 
-def _placeholder_line(setup: Path) -> int | None:
+def _placeholder_line(lines: list[str]) -> int | None:
     """Return the index of the one line hat_channel = "M?" of setup.toml, if any."""
-    lines = _read_lines(setup)
     hits = [
         k
         for k, line in enumerate(lines)
@@ -323,8 +327,16 @@ def _placeholder_line(setup: Path) -> int | None:
     return hits[0] if len(hits) == 1 else None
 
 
-def fill_hat_channel(setup: Path, channel: str) -> bool:
+def fill_hat_channel(
+    setup: Path, lines: list[str], k: int | None, channel: str
+) -> bool:
     """Replace a hat_channel left "M?" in setup.toml by the channel found.
+
+    Args:
+        setup: The path of setup.toml.
+        lines: Its lines, as read by _read_lines.
+        k: The index of its placeholder line, from _placeholder_line.
+        channel: The channel found, or the placeholder.
 
     Only the value of that one line changes, and only while it is still the
     placeholder, so a value set by hand is kept, and so are the spaces, the
@@ -333,10 +345,9 @@ def fill_hat_channel(setup: Path, channel: str) -> bool:
     Returns:
         Whether the file changed.
     """
-    k = _placeholder_line(setup)
     if channel == HAT_CHANNEL_PLACEHOLDER or k is None:
         return False
-    lines = _read_lines(setup)
+    lines = list(lines)
     body = lines[k].rstrip("\r\n")
     lines[k] = (
         HAT_CHANNEL_PLACEHOLDER_RE.sub(lambda m: m["head"] + channel + m["tail"], body)
