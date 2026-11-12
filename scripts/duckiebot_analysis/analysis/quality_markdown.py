@@ -29,6 +29,7 @@ README_START = "<!-- quality-summary: start -->"
 README_END = "<!-- quality-summary: end -->"
 # Short labels for the summary table of a README.
 SHORT = {
+    "bad-runs-csv": "runs.csv unreadable",
     "not-tracked": "not tracked yet",
     "not-processed": "not processed yet",
     "not-filmed": "trials outside the video",
@@ -78,7 +79,7 @@ def _verdict(rq: RunQuality) -> str:
 
 
 def _warning_codes(fq: FolderQuality) -> Counter[str]:
-    codes: Counter[str] = Counter()
+    codes: Counter[str] = Counter(i.code for i in fq.issues if i.severity == "warning")
     for rq in fq.runs:
         for code in {i.code for i in rq.issues if i.severity == "warning"}:
             codes[code] += 1
@@ -154,6 +155,11 @@ def render_report(
         "affects, and a note states a limitation.",
         "",
     ]
+    folder_warnings = [i for i in fq.issues if i.severity == "warning"]
+    if folder_warnings:
+        lines += ["> [!WARNING]"]
+        lines += [f"> **{_sentences(i.text, '> ')}**" for i in folder_warnings]
+        lines += [""]
     if warned:
         lines += [
             "> [!WARNING]",

@@ -82,6 +82,9 @@ class Thresholds:
 
 THRESHOLDS = Thresholds()
 
+# A folder warning: its runs.csv cannot be read, so it has no runs.
+BAD_RUNS_CSV = "bad-runs-csv"
+
 # Warnings that a new recording with the LED in view would remove.
 LED_CODES = (
     "not-synchronised",
@@ -516,12 +519,18 @@ def motion_bias_by_experiment(raw_root: Path, processed_root: Path) -> dict[str,
 
     Over every trial whose clock is the run's LED clock and that the run's
     motion clock also places, by the experiment of its run in runs.csv.
+    A folder whose runs.csv cannot be read is skipped; its own report says why
+    (`assess_folder`).
     """
     diffs: dict[str, list[float]] = defaultdict(list)
     for raw in sorted(
         p for p in raw_root.iterdir() if layout.is_motor_folder_name(p.name)
     ):
-        experiments = {r.run: r.experiment for r in layout.read_runs(raw)}
+        try:
+            runs = layout.read_runs(raw)
+        except ValueError:
+            continue
+        experiments = {r.run: r.experiment for r in runs}
         for rec in _trials_table(processed_root / raw.name):
             motion, used = _num(rec, "offset_run_motion_s"), _num(rec, "offset_s")
             if rec.get("align") == "led" and rec.get("clock") == "run":
@@ -614,6 +623,9 @@ def assess_folder(
         processed: ``data/processed/<folder>``.
         motion_bias: From `motion_bias_by_experiment`.
         th: Thresholds.
+
+    A runs.csv that cannot be read gives a folder warning ``bad-runs-csv``
+    and no runs.
     """
     setup = layout.read_setup(raw)
     ids = layout.motor_ids(raw)
@@ -624,10 +636,27 @@ def assess_folder(
         ", ".join(ids) if ids else setup.motor_label,
         _folder_issues(raw, setup),
     )
+    try:
+        runs = layout.read_runs(raw)
+    except ValueError as exc:
+        # One group's bad runs.csv, such as a run listed twice after
+        # re-tracking, must not stop the reports of the other folders.
+        fq.issues.append(
+            Issue(
+                "warning",
+                BAD_RUNS_CSV,
+                "runs.csv cannot be read, so no run of the folder is assessed: "
+                # quality.md may be committed, so it names no path of this
+                # machine.
+                + str(exc).replace(str(raw / "runs.csv"), "runs.csv").rstrip(".")
+                + ".",
+            )
+        )
+        return fq
     records = defaultdict(list)
     for rec in _trials_table(processed):
         records[rec["run"]].append(rec)
-    for run in layout.read_runs(raw):
+    for run in runs:
         # The level used, from the processed file; none until it exists.
         rq = RunQuality(run.run, run.experiment, run.mode, None)
         path = processed / f"{run.run}.parquet"
@@ -718,6 +747,7 @@ def finish(folders: Sequence[FolderQuality]) -> None:
 
 
 __all__ = [
+    "BAD_RUNS_CSV",
     "THRESHOLDS",
     "FolderQuality",
     "Issue",

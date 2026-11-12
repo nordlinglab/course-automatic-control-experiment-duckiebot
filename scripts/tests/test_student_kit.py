@@ -339,6 +339,7 @@ def test_plot_script_writes_the_macros_of_synthetic_data(tmp_path):
     assert out.returncode == 0, out.stderr
     text = (tmp_path / "figures" / "results.tex").read_text(encoding="utf-8")
     assert "\\newcommand{\\StopDuty}{0.10}" in text
+    assert "% NMotors counts motor mountings (motor folders)" in text
 
 
 def test_case_study_needs_an_e2_trial_with_the_expected_prefix(tmp_path):
@@ -586,3 +587,249 @@ def test_case_study_reads_each_pi_log_once(tmp_path, monkeypatch):
     monkeypatch.setattr(cs, "read_pi_log", counting)
     cs.case_study(tmp_path)
     assert reads == Counter(f"{t}_events.csv" for t in trials)
+
+
+# ------------------------------------------------- review findings, round 3
+
+
+def _quality_folder(root: Path, name: str, runs: list[str]) -> Path:
+    """Write data/raw/<name> with setup.toml and one runs.csv row per run."""
+    raw = root / "raw" / name
+    raw.mkdir(parents=True)
+    robot, side = parse_motor_folder(name)
+    label = name.rsplit("-", 1)[1]
+    (raw / "setup.toml").write_text(
+        f'robot = "{robot}"\nmotor = "{side}"\nmotor_label = "{label}"\n',
+        encoding="utf-8",
+    )
+    sha = "0" * 64
+    rows = [
+        f"{run},{run}.mp4,{sha},1,1,1280x720,240,stand,C,log+led,,{run}_t,\n"
+        for run in runs
+    ]
+    (raw / "runs.csv").write_text(_RUNS_HEADER + "".join(rows), encoding="utf-8")
+    return raw
+
+
+@pytest.fixture
+def quality_root(tmp_path):
+    """A raw root with one folder whose runs.csv lists a run twice, one good."""
+    run = "R5-L-m9_C_b060p040_20261024_113544"
+    _quality_folder(tmp_path, "db17-r5-left-m9", [run, run])
+    _quality_folder(tmp_path, "db17-r6-right-m10", ["R6-R-m10_C_b060p040_x"])
+    (tmp_path / "processed").mkdir()
+    return tmp_path, run
+
+
+def _quality_report(root: Path, *folders: str) -> int:
+    import quality_report
+
+    return quality_report.main(
+        [*folders, "--raw", str(root / "raw"), "--processed", str(root / "processed")]
+    )
+
+
+def test_quality_report_reports_a_bad_runs_csv_in_its_own_folder(quality_root, capsys):
+    root, run = quality_root
+    assert _quality_report(root) == 0
+    bad = (root / "raw" / "db17-r5-left-m9" / "quality.md").read_text("utf-8")
+    assert run in bad and "delete" in bad and "WARNING" in bad
+    # quality.md may be committed, so it names no path of this machine.
+    assert str(root) not in bad
+    good = (root / "raw" / "db17-r6-right-m10" / "quality.md").read_text("utf-8")
+    assert "R6-R-m10_C_b060p040_x" in good and "delete" not in good
+    err = capsys.readouterr().err
+    assert "db17-r5-left-m9" in err and "Traceback" not in err
+
+
+def test_quality_report_fails_only_when_a_named_folder_is_bad(quality_root):
+    root, _ = quality_root
+    assert _quality_report(root, "db17-r6-right-m10") == 0
+    assert _quality_report(root, "db17-r5-left-m9") == 1
+    assert (root / "raw" / "db17-r5-left-m9" / "quality.md").is_file()
+
+
+def test_motion_bias_skips_a_folder_with_a_bad_runs_csv(quality_root):
+    from duckiebot_analysis.analysis import quality
+
+    root, _ = quality_root
+    assert quality.motion_bias_by_experiment(root / "raw", root / "processed") == {}
+
+
+def test_readme_row_shows_a_bad_runs_csv(quality_root):
+    from duckiebot_analysis.analysis import quality
+    from duckiebot_analysis.analysis import quality_markdown as md
+
+    root, _ = quality_root
+    name = "db17-r5-left-m9"
+    fq = quality.assess_folder(
+        root / "raw" / name, root / "processed" / name, motion_bias={}
+    )
+    quality.finish([fq])
+    assert "**Warning:**" in md.readme_row(fq)
+
+
+def test_speeds_at_06_takes_only_valid_single_motor_folder_names(tmp_path):
+    hold = [0.0] * 240 + [0.6] * 480 + [1.0] * 240
+    for folder in (
+        "db17-daisy-left-m1",
+        "db17-daisy-left-m1_old",
+        "db17-cherry-both-m1-m2",
+        "db17-daisy-right",
+    ):
+        path = tmp_path / folder / "R1-L-m1_C_b060p040_x.parquet"
+        _write_run(path, [("R1-L-m1_C_b060p040_rep01_20261024_100000", hold)])
+    assert cs.speeds_at_06(tmp_path) == {
+        "db17-daisy-left-m1": 0.0,
+        "db17-daisy-right": 0.0,
+    }
+
+
+def test_case_study_names_an_e1_trial_without_a_duty_change(tmp_path):
+    from synthetic_case_study import write_case_study_data
+
+    trials = write_case_study_data(tmp_path, cs.MOTOR, cs.LABEL)
+    e1 = next(t for t in trials if "_A_sweep_forward_" in t)
+    log = tmp_path / "raw" / cs.MOTOR / "pi" / f"{e1}_events.csv"
+    # A log cut after the rest command: no duty change on motor_left.
+    lines = log.read_text("utf-8").splitlines(keepends=True)
+    log.write_text("".join(x for x in lines if ",step," not in x), "utf-8")
+    with pytest.raises(ValueError) as exc:
+        cs.case_study(tmp_path)
+    message = str(exc.value)
+    assert e1 in message and "motor_left" in message and "truncated" in message
+
+
+def _events(values: list[float]):
+    from duckiebot_analysis.data.pilogs import PiEvents
+
+    n = len(values)
+    t = np.arange(n, dtype=float)
+    return PiEvents(
+        trial=np.array(["t"] * n),
+        t_s=t,
+        t_after_s=t,
+        channel=np.array(["motor_left"] * n),
+        value=np.array(values, dtype=float),
+        event=np.array(["step"] * n),
+        t_sd_s=np.zeros(n),
+    )
+
+
+def test_command_changes_ignores_a_resent_duty_with_rounding_error():
+    ev = _events([0.0, 0.6, 0.6000000000000001, 1.0, 0.99999999, 0.0])
+    duties = [v for _, v in cs.command_changes(ev, 0.0, "motor_left")]
+    assert duties == [0.6, 1.0, 0.0]
+
+
+def _replace_step(result, key: str, **change):
+    import dataclasses
+
+    steps = dict(result.steps)
+    steps[key] = dataclasses.replace(steps[key], **change)
+    return dataclasses.replace(result, steps=steps)
+
+
+def test_macros_name_a_step_without_a_change(synthetic_case_study):
+    import dataclasses
+
+    from duckiebot_analysis.analysis.case_study_macros import case_study_macros
+
+    info = synthetic_case_study.steps["up06"].info
+    flat = dataclasses.replace(info, final=info.initial)
+    with pytest.raises(ValueError) as exc:
+        case_study_macros(_replace_step(synthetic_case_study, "up06", info=flat))
+    assert "UpSixNoiseRms" in str(exc.value) and "change" in str(exc.value)
+
+
+@pytest.mark.parametrize(
+    ("meta", "macro"), [("meta_e2", "KETwo"), ("meta_e1", "KEOne")]
+)
+def test_macros_name_a_run_without_k(synthetic_case_study, meta, macro):
+    import dataclasses
+
+    from duckiebot_analysis.analysis.case_study_macros import case_study_macros
+
+    with pytest.raises(ValueError) as exc:
+        case_study_macros(dataclasses.replace(synthetic_case_study, **{meta: {}}))
+    assert macro in str(exc.value) and "k" in str(exc.value)
+
+
+def test_macros_name_trials_without_frames(synthetic_case_study):
+    import dataclasses
+
+    from duckiebot_analysis.analysis.case_study_macros import case_study_macros
+
+    trials = {
+        k: v | {"n_frames": 0, "n_dropped": 0}
+        for k, v in synthetic_case_study.trials.items()
+    }
+    with pytest.raises(ValueError) as exc:
+        case_study_macros(dataclasses.replace(synthetic_case_study, trials=trials))
+    assert "Dropped" in str(exc.value) and "frames" in str(exc.value)
+
+
+def test_level_matches_a_duty_within_duty_tol(synthetic_case_study):
+    import dataclasses
+
+    from duckiebot_analysis.analysis.case_study_macros import _level
+    from duckiebot_analysis.analysis.step_response import LevelSpeed
+
+    def at(duty: float):
+        lv = LevelSpeed(duty, 0.0, 2.0, True, 4.0, 0.1, 100)
+        return dataclasses.replace(synthetic_case_study, e1_levels=[lv])
+
+    assert _level(at(0.2 + 4e-5), 0.2, "SpeedAtTwo") == (4.0, 0.1)
+    with pytest.raises(ValueError, match="SpeedAtTwo"):
+        _level(at(0.2 + 1e-4), 0.2, "SpeedAtTwo")
+
+
+def test_plot_script_reports_an_unexpected_error_without_traceback(
+    tmp_path, monkeypatch, capsys
+):
+    import plot_case_study_csme2026 as script
+
+    def fail(*args, **kwargs):
+        raise KeyError("drift")
+
+    monkeypatch.setattr(script, "case_study", fail)
+    argv = ["--data", str(tmp_path), "--figures", str(tmp_path / "figures")]
+    assert script.main(argv) == 1
+    err = capsys.readouterr().err
+    assert err.startswith("error: unexpected KeyError: ") and "drift" in err
+    assert "Traceback" not in err
+    with pytest.raises(KeyError):
+        script.main([*argv, "--debug"])
+
+
+def test_make_all_creates_the_folder_of_the_macro_file(synthetic_case_study, tmp_path):
+    from duckiebot_analysis.visualization.case_study_figures import make_all
+
+    macros = tmp_path / "article" / "results.tex"
+    make_all(synthetic_case_study, tmp_path / "figures", macros, "test")
+    assert macros.is_file()
+
+
+@pytest.mark.parametrize("script", ["track_video", "process_raw"])
+def test_entry_scripts_report_a_misnamed_folder_without_traceback(
+    tmp_path, capsys, script
+):
+    import importlib
+
+    folder = tmp_path / "raw" / "db17-daisy-left-m1_old"
+    folder.mkdir(parents=True)
+    argv = {
+        "track_video": [
+            str(tmp_path / "v.mp4"),
+            "--folder",
+            str(folder),
+            "--mode",
+            "stand",
+            "--camera",
+            "phone",
+        ],
+        "process_raw": [str(folder), "--out", str(tmp_path / "out")],
+    }[script]
+    assert importlib.import_module(script).main(argv) == 1
+    err = capsys.readouterr().err
+    assert err.startswith("error:") and "db17-daisy-left-m1_old" in err

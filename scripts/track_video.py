@@ -119,7 +119,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 def main(argv: list[str] | None = None) -> int:
     """Track the video, write the frame table, and print the runs.csv row."""
     args = parse_args(argv)
-    parse_motor_folder(args.folder)
+    try:
+        parse_motor_folder(args.folder)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
     out = frames_path(args.folder, args.video.stem)
     if out.exists() and not args.force:
         print(

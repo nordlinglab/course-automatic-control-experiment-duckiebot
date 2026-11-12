@@ -9,6 +9,12 @@ with ``--readme FILE`` replaces the summary table between the lines
 ``<!-- quality-summary: start -->`` and ``<!-- quality-summary: end -->``
 of FILE, a Markdown file you add these lines to.
 
+A folder whose runs.csv cannot be read, such as one listing a run twice,
+gets a quality.md that says why and is left out of the statistics over all
+folders; the other folders are reported as usual. The exit status is 1 if a
+folder named on the command line is such a folder, and 0 when no folder is
+named, so that one group's runs.csv does not fail the report of all.
+
 Example:
     python scripts/quality_report.py --raw data/raw --processed data/processed
 """
@@ -72,6 +78,16 @@ def main(argv: list[str] | None = None) -> int:
             for name in every
         ]
         quality.finish(folders)
+        bad = [
+            fq.folder
+            for fq in folders
+            if any(i.code == quality.BAD_RUNS_CSV for i in fq.issues)
+        ]
+        for name in bad:
+            print(
+                f"warning: {name}: runs.csv cannot be read; see its {md.REPORT_NAME}",
+                file=sys.stderr,
+            )
         for fq in folders:
             if args.folders and fq.folder not in args.folders:
                 continue
@@ -98,7 +114,7 @@ def main(argv: list[str] | None = None) -> int:
     except (FileNotFoundError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
-    return 0
+    return 1 if set(bad) & set(args.folders) else 0
 
 
 if __name__ == "__main__":

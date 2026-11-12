@@ -46,7 +46,7 @@ from duckiebot_analysis.analysis.step_response import (
     start_stop_duties,
     step_info,
 )
-from duckiebot_analysis.data.layout import parse_motor_folder
+from duckiebot_analysis.data.layout import is_motor_folder_name, parse_motor_folder
 from duckiebot_analysis.data.pilogs import PiEvents, read_pi_log
 
 FloatArray = npt.NDArray[np.float64]
@@ -169,6 +169,9 @@ class CaseStudy:
     meta_e1: dict
     meta_e2: dict
     call_s: float
+    # Mean |speed| at duty 0.6 per motor mounting (motor folder), not per
+    # motor: a model holds for a motor on one Duckiebot and side, so a motor
+    # tested on two robots or sides counts once per mounting.
     speeds_06: dict[str, float]
     # Name of the backward sweep trial, found by its prefix e1_trial_neg.
     e1_neg_trial: str = ""
@@ -209,16 +212,18 @@ def command_changes(
 ) -> list[tuple[float, float]]:
     """Return (time from trial start, duty) of every change of the duty on channel.
 
-    The command time is the middle of the Pi's call to the driver, scaled by
-    the clock drift (§10.3), as the processing places it.
+    A duty within DUTY_TOL of the previous one, such as a re-sent 0.6 logged as
+    0.6000000000000001, is no change. The command time is the middle of the
+    Pi's call to the driver, scaled by the clock drift (§10.3), as the
+    processing places it.
     """
     m = ev.channel == channel
     tau = (ev.t_s[m] + ev.t_after_s[m]) / 2 * (1 + drift)
     out, prev = [], 0.0
     for t, v in zip(tau, ev.value[m], strict=True):
-        if v != prev:
+        if not math.isclose(v, prev, rel_tol=0.0, abs_tol=DUTY_TOL):
             out.append((float(t), float(v)))
-        prev = v
+            prev = v
     return out
 
 
@@ -228,22 +233,35 @@ def call_duration(ev: PiEvents, channel: str) -> float:
     return float(np.median(ev.t_after_s[m] - ev.t_s[m]))
 
 
-def speeds_at_06(processed: Path) -> dict[str, float]:
-    """Return per motor folder the mean |speed| at duty 0.6 of its C_b060p040 trials.
+def _one_wheel(name: str) -> bool:
+    """Return whether name is a valid left or right motor folder name."""
+    try:
+        return parse_motor_folder(name)[1] in ("left", "right")
+    except ValueError:
+        return False
 
-    The speed is the mean over the last FINAL_S of the first hold at 0.6. The
-    key is the folder name, such as db17-cherry-left-m5, so that one motor
-    tested on two robots or sides counts once per mounting.
+
+def speeds_at_06(processed: Path) -> dict[str, float]:
+    """Return per motor mounting the mean |speed| at 0.6 of its C_b060p040 trials.
+
+    A mounting is a left or right motor folder, such as db17-cherry-left-m5,
+    and the key is its name. Each student group gets its own Duckiebot, with
+    two motors; moving a motor to another robot or side can change its
+    parameters a little, so the model of a motor holds for that motor on that
+    Duckiebot and side, and a motor tested on two robots or sides counts once
+    per mounting. Keeping mountings apart also keeps the results of different
+    groups apart. The speed is the mean over the last FINAL_S of the first
+    hold at 0.6. A folder whose name
+    layout.parse_motor_folder rejects, such as the copy db17-daisy-left-m1_old,
+    and a both folder, which drives two wheels, are left out.
     """
     out: dict[str, float] = {}
     if not processed.is_dir():
         return out
-    # One wheel per folder: db17-cherry-both-m1-m2 also ends in a motor name.
     folders = [
         f
-        for side in ("left", "right")
-        # Any robot name, so that a student's own robot is included too.
-        for f in processed.glob(f"db17-*-{side}-m*")
+        for f in processed.iterdir()
+        if f.is_dir() and is_motor_folder_name(f.name) and _one_wheel(f.name)
     ]
     for folder in sorted(folders):
         speeds = []
@@ -484,7 +502,8 @@ def case_study(data_root: Path, config: CaseStudyConfig = ARTICLE) -> CaseStudy:
     Raises:
         FileNotFoundError: If a run is missing or matched more than once.
         ValueError: If a trial is missing or used is not synchronised by the
-            LED, or a duty schedule is not that of its experiment.
+            LED, a duty schedule is not that of its experiment, or the Pi log
+            of an E1 trial changes no duty on the configured channel.
     """
     proc = data_root / "processed" / config.folder
     raw = data_root / "raw" / config.folder
@@ -512,6 +531,12 @@ def case_study(data_root: Path, config: CaseStudyConfig = ARTICLE) -> CaseStudy:
     for tr in (e1, neg):
         drift = trials[tr.trial]["drift"]
         changes = command_changes(logs[tr.trial], drift, config.channel)
+        if not changes:
+            raise ValueError(
+                f"{tr.trial}: its Pi log changes no duty on {config.channel}; the "
+                "folder's side (left or right) may not be the wheel the trial "
+                "drives, or the log is truncated"
+            )
         first_cmd[tr.trial] = changes[0][0]
     traces = {e1.trial: e1, neg.trial: neg} | e2
     noise = np.concatenate(
