@@ -99,11 +99,14 @@ README = """\
 - Notes: anything that affects the use of the data, such as a video recorded twice
 """
 
-MANUAL_README = """\
-# Hand measurements
-
-This folder holds the values measured by hand, such as the wheel radius, in `measurements.csv` (data/schema.md section 8), and photos or scans of the sheets they were written on.
-"""
+# One sentence per line, as the Markdown of the repository is written.
+MANUAL_README = (
+    "# Hand measurements\n"
+    "\n"
+    "This folder holds the values measured by hand, such as the wheel radius,"
+    " in `measurements.csv` (data/schema.md section 8), and photos or scans of"
+    " the sheets they were written on.\n"
+)
 
 
 def with_policy(name: str, text: str) -> str:
