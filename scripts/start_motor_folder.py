@@ -216,12 +216,22 @@ def hat_channel(folder: Path, robot: str, position: str) -> tuple[str, str]:
     return ", ".join(channels), ""
 
 
-def create(folder: Path, robot: str, position: str, labels: tuple[str, ...]) -> None:
-    """Create the motor folder's subfolders and files; keep any that exist."""
+def create(folder: Path, robot: str, position: str, labels: tuple[str, ...]) -> int:
+    """Create the motor folder's subfolders and files; keep any that exist.
+
+    Returns:
+        The exit status: 1 if setup.toml exists but cannot be read, else 0.
+    """
     label = ", ".join(labels)
     channel, problem = hat_channel(folder, robot, position)
     setup = folder / "setup.toml"
-    if problem and (not setup.exists() or _placeholder_line(setup) is not None):
+    unreadable = ""
+    try:
+        placeholder = _placeholder_line(setup) if setup.exists() else None
+    except UserError as exc:
+        # Never rewrite a file that cannot be read; the rest is still created.
+        unreadable, placeholder = str(exc), None
+    if problem and (not setup.exists() or placeholder is not None):
         print(problem)
     files = {
         "README.md": README.format(
@@ -253,6 +263,8 @@ def create(folder: Path, robot: str, position: str, labels: tuple[str, ...]) -> 
     for name, text in files.items():
         path = folder / name
         if path.exists():
+            if name == "setup.toml" and unreadable:
+                continue
             if name != "setup.toml" or not fill_hat_channel(path, channel):
                 kept.append(name)
             continue
@@ -260,6 +272,9 @@ def create(folder: Path, robot: str, position: str, labels: tuple[str, ...]) -> 
             fh.write(text)
     if kept:
         print(f"left unchanged, as they already exist: {', '.join(kept)}")
+    if unreadable:
+        print(f"error: {unreadable}", file=sys.stderr)
+        return 1
     print(f"{folder} is ready.")
     check = "Next: fill in README.md and check every value in setup.toml"
     trials = f"list the trials with\n  {COMMAND} {folder} --trials"
@@ -270,12 +285,23 @@ def create(folder: Path, robot: str, position: str, labels: tuple[str, ...]) -> 
             f"{check}. Copy the Pi logs and {MAPPING} into {folder / 'pi'} as in "
             f"README.md, section In the lab, step 6, then {trials}"
         )
+    return 0
 
 
 def _read_lines(setup: Path) -> list[str]:
-    """Return the lines of a file with their own line endings."""
-    with open(setup, encoding="utf-8", newline="") as fh:
-        return fh.read().splitlines(keepends=True)
+    """Return the lines of a file with their own line endings.
+
+    Raises:
+        UserError: If the file is not UTF-8 text.
+    """
+    try:
+        with open(setup, encoding="utf-8", newline="") as fh:
+            return fh.read().splitlines(keepends=True)
+    except UnicodeDecodeError:
+        raise UserError(
+            f"{setup} cannot be read as UTF-8 and is left unchanged; save it "
+            "as UTF-8 in your editor and run this command again"
+        ) from None
 
 
 def _placeholder_line(setup: Path) -> int | None:
@@ -467,11 +493,10 @@ def main(argv: list[str] | None = None) -> int:
                     f"using {run} for {args.run}"
                 )
             return add_trials(args.folder, run, args.match)
-        create(args.folder, robot, position, labels)
+        return create(args.folder, robot, position, labels)
     except (UserError, OSError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
-    return 0
 
 
 if __name__ == "__main__":

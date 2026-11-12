@@ -552,3 +552,23 @@ def test_track_video_and_trials_give_a_doubled_extension_the_same_run(with_trial
     assert "Traceback" not in track.stderr
     note = next(x for x in track.stderr.splitlines() if x.startswith("note:"))
     assert video in note and run in note
+
+
+@pytest.mark.parametrize("with_mapping", [False, True])
+def test_a_setup_toml_not_in_utf8_is_named_and_left_unchanged(folder, with_mapping):
+    if with_mapping:
+        _write_mapping(folder, _MAPPING)
+    folder.mkdir(parents=True, exist_ok=True)
+    setup = folder / "setup.toml"
+    # Saved in Latin-1 by an editor: the bytes of ö are not UTF-8.
+    data = '# Torbjörn\nhat_channel = "M?"\n'.encode("latin-1")
+    setup.write_bytes(data)
+    out = _run(str(folder))
+    assert "Traceback" not in out.stderr, out.stderr
+    assert out.returncode == 1
+    message = next(x for x in out.stderr.splitlines() if "setup.toml" in x)
+    assert message.startswith("error:") and str(setup) in message
+    assert "UTF-8" in message
+    assert setup.read_bytes() == data
+    # The other files are still created.
+    assert (folder / "runs.csv").is_file() and (folder / "README.md").is_file()
