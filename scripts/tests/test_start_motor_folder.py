@@ -636,3 +636,49 @@ def test_run_and_track_video_strip_every_known_video_extension(video, run):
     from duckiebot_analysis.data.layout import run_of_video
 
     assert run_of_video(video) == run
+
+
+@pytest.mark.parametrize(
+    ("line", "filled"),
+    [
+        ('hat_channel="M?"', 'hat_channel="M2"'),
+        ('  hat_channel  =  "M?"  ', '  hat_channel  =  "M2"  '),
+        ('hat_channel = "M?"  # see the Pi', 'hat_channel = "M2"  # see the Pi'),
+        ("hat_channel = 'M?'", "hat_channel = 'M2'"),
+        ('hat_channel = "M?"\t#later', 'hat_channel = "M2"\t#later'),
+    ],
+)
+def test_a_placeholder_written_otherwise_is_noted_and_filled(folder, line, filled):
+    assert _run(str(folder)).returncode == 0
+    setup = folder / "setup.toml"
+    text = setup.read_text(encoding="utf-8").replace('hat_channel = "M?"', line)
+    setup.write_text(text, encoding="utf-8")
+    out = _run(str(folder))
+    assert out.returncode == 0, out.stderr
+    assert "motor_mapping.json" in out.stdout.split("Next:", 1)[0]
+    _write_mapping_file(folder, _MAPPING)
+    assert _run(str(folder)).returncode == 0
+    assert setup.read_text(encoding="utf-8") == text.replace(line, filled)
+    assert read_setup(folder).hat_channel == "M2"
+
+
+@pytest.mark.parametrize(
+    "line",
+    ['hat_channel = "M3"  # was "M?"', '# hat_channel = "M?"', 'channel = "M?"'],
+)
+def test_a_line_that_only_mentions_the_placeholder_is_kept(folder, line):
+    assert _run(str(folder)).returncode == 0
+    setup = folder / "setup.toml"
+    text = setup.read_text(encoding="utf-8").replace('hat_channel = "M?"', line)
+    if not line.startswith("hat_channel"):
+        text += 'hat_channel = "M3"\n'
+    setup.write_text(text, encoding="utf-8")
+    _write_mapping_file(folder, _MAPPING)
+    assert _run(str(folder)).returncode == 0
+    assert setup.read_text(encoding="utf-8") == text
+
+
+def _write_mapping_file(folder: Path, mapping: dict) -> None:
+    (folder / "pi" / "motor_mapping.json").write_text(
+        json.dumps(mapping), encoding="utf-8"
+    )

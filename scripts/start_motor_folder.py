@@ -42,6 +42,7 @@ import argparse
 import csv
 import io
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -62,6 +63,13 @@ EXAMPLE = "data/raw/db17-r5-left-m9"
 # passes read_setup, and this one is plainly not filled in.
 HAT_CHANNEL_PLACEHOLDER = "M?"
 HAT_CHANNEL_LINE = 'hat_channel = "{}"'
+# A TOML line whose key is hat_channel and whose value is still the
+# placeholder, in either string quote, with any spaces and a trailing comment.
+HAT_CHANNEL_PLACEHOLDER_RE = re.compile(
+    r"""^(?P<head>\s*(?:hat_channel|"hat_channel")\s*=\s*(?P<q>["']))"""
+    + re.escape(HAT_CHANNEL_PLACEHOLDER)
+    + r"(?P<tail>(?P=q)\s*(?:#.*)?)$"
+)
 MAPPING = "motor_mapping.json"
 NAME_RULE = (
     "Name it db17-<robot>-<position>-<motor>, such as db17-r5-left-m9: the "
@@ -306,17 +314,21 @@ def _read_lines(setup: Path) -> list[str]:
 
 def _placeholder_line(setup: Path) -> int | None:
     """Return the index of the one line hat_channel = "M?" of setup.toml, if any."""
-    old = HAT_CHANNEL_LINE.format(HAT_CHANNEL_PLACEHOLDER)
     lines = _read_lines(setup)
-    hits = [k for k, line in enumerate(lines) if line.rstrip("\r\n") == old]
+    hits = [
+        k
+        for k, line in enumerate(lines)
+        if HAT_CHANNEL_PLACEHOLDER_RE.match(line.rstrip("\r\n"))
+    ]
     return hits[0] if len(hits) == 1 else None
 
 
 def fill_hat_channel(setup: Path, channel: str) -> bool:
     """Replace a hat_channel left "M?" in setup.toml by the channel found.
 
-    Only that one line changes, and only while it is exactly as written, so a
-    value set by hand is kept.
+    Only the value of that one line changes, and only while it is still the
+    placeholder, so a value set by hand is kept, and so are the spaces, the
+    quotes, and a comment around it.
 
     Returns:
         Whether the file changed.
@@ -325,8 +337,11 @@ def fill_hat_channel(setup: Path, channel: str) -> bool:
     if channel == HAT_CHANNEL_PLACEHOLDER or k is None:
         return False
     lines = _read_lines(setup)
-    old = HAT_CHANNEL_LINE.format(HAT_CHANNEL_PLACEHOLDER)
-    lines[k] = HAT_CHANNEL_LINE.format(channel) + lines[k][len(old) :]
+    body = lines[k].rstrip("\r\n")
+    lines[k] = (
+        HAT_CHANNEL_PLACEHOLDER_RE.sub(lambda m: m["head"] + channel + m["tail"], body)
+        + lines[k][len(body) :]
+    )
     with open(setup, "w", encoding="utf-8", newline="") as fh:
         fh.write("".join(lines))
     print(f"note: set hat_channel in {setup} to {channel}, from pi/{MAPPING}")
