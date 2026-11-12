@@ -25,6 +25,19 @@ The code in `scripts/` turns each video and the Pi log into wheel angle, speed, 
 - The software on the Duckiebot is already on its SD card;
   this repository holds only the code that runs on your computer.
 
+## Start here
+
+Do the parts in this order;
+each links to its instructions.
+
+1. **Before the lab, at home (about one hour):**
+   create a GitHub account, install git, and set up your group's fork ([Step by step](#step-by-step-accounts-tools-and-hand-in), steps 1 to 4);
+   install Python and FFmpeg on at least one group member's laptop ([Install Python and FFmpeg](#install-python-and-ffmpeg)).
+   The lecture slides are LaTeX source in `doc/lecture_Nordling2026_Exp2/`:
+   compile them to read them, as [Compiling LaTeX](#appendix-compiling-latex) explains if you have never done it.
+2. **In the lab (50 minutes):** record the two clips E1 and E2 ([In the lab](#in-the-lab-run-the-experiment)).
+3. **At home:** analyse the videos ([From video to figures](#from-video-to-figures)), hand in the data, then write and hand in the report ([Step by step](#step-by-step-accounts-tools-and-hand-in), steps 5 to 7).
+
 ## Hand-in: two pull requests
 
 You hand in by opening two pull requests to this repository, <https://github.com/nordlinglab/course-automatic-control-experiment-duckiebot>:
@@ -32,13 +45,12 @@ You hand in by opening two pull requests to this repository, <https://github.com
 1. **Data pull request**, first.
    It adds your group's motor folders in `data/raw/`, organised and named as described under [Data](#data), and nothing else.
    A teaching assistant reviews it;
-   fix what the review asks for and push again until the teaching assistant approves it.
-2. **Report pull request**, after the data pull request is approved.
+   fix what the review asks for and push again until the teaching assistant approves and merges it.
+2. **Report pull request**, after the data pull request is merged.
    It adds the LaTeX source of your group report in `doc/report_FamilynameYEAR_TwoTitleWords_Group<NN>/`, and any change you made to `scripts/`.
    **Deadline: 2026-11-26.**
 
 Commit the LaTeX source, the bibliography, and the figures, never the compiled PDF.
-[Step by step](#step-by-step-accounts-tools-and-hand-in) shows how, from creating a GitHub account onwards.
 
 ## Files provided
 
@@ -52,55 +64,196 @@ The steps are those of [From video to figures](#from-video-to-figures).
 | `doc/lecture_Nordling2026_Exp2/` | Slides of the Experiment 2 lecture. |
 | `assets/image/` | Screenshots for the step-by-step instructions. |
 | `requirements.txt` | Python packages the scripts need. |
+| `scripts/start_motor_folder.py` | Step 1: creates a motor folder with its files, and writes `trials.csv` from the Pi logs. |
 | `scripts/track_video.py` | Step 2: tracks the marker, hub, and sync LED in one video and writes its frame table `frames/<run>.parquet`; prints the row for `runs.csv`. |
 | `scripts/process_raw.py` | Step 3: synchronises the Pi command log with the video through the LED and computes wheel angle, speed, acceleration, and input, with uncertainty, into `data/processed/`. |
 | `scripts/quality_report.py` | Step 3: writes `quality.md` in the motor folders you name, with the checks, warnings, and recommendations. |
-| `scripts/select_wheel_frames.py` | Step 5, optional: picks the video frames shown in the wheel-overlay figure of the article's supplement. |
-| `scripts/plot_case_study_csme2026.py` | Step 4: fits the models and draws the case-study figures (small duty, step to 0.6, step to 1.0, hysteresis, rest noise, methods, wheel overlay) and writes their numbers as LaTeX macros in `results.tex`. |
+| `scripts/plot_case_study_csme2026.py` | Step 4: fits the models, draws seven figures (small duty, step to 0.6, step to 1.0, hysteresis, rest noise, methods, wheel overlay), and writes their numbers as LaTeX macros in `results.tex`. |
+| `scripts/select_wheel_frames.py` | Step 5, optional: picks the video frames shown in the wheel-overlay figure. |
 | `scripts/duckiebot_analysis/` | The library the scripts import: `tracking/` (video and blob tracking), `data/` (file formats and Pi logs), `analysis/` (angle, sync, processing, quality, case study), `models/`, and `visualization/` (figures). |
-| `scripts/tests/test_student_kit.py` | Tests of the trial names, folder names, LED colour, and motor selection. |
+| `scripts/tests/` | Tests of the scripts; `pytest scripts/tests` checks your installation. |
+
+## Install Python and FFmpeg
+
+The analysis needs Python 3.12 or newer and FFmpeg, which reads the videos.
+One laptop per group is enough:
+the member who keeps the videos runs the analysis.
+An iPad cannot run it.
+Type every command of this README in **Git Bash** on Windows and in **Terminal** on macOS, never in PowerShell or the Command Prompt.
+
+**Windows 11.**
+
+1. Download Python 3.12 or newer from <https://www.python.org/downloads/windows/>, run the installer, and tick **Add python.exe to PATH** on its first page before you click **Install Now**.
+2. Install FFmpeg by typing in Git Bash:
+
+   ```bash
+   winget install Gyan.FFmpeg
+   ```
+
+3. Close Git Bash and open it again, so that it finds both programs.
+
+**macOS.**
+
+1. Download Python 3.12 or newer from <https://www.python.org/downloads/macos/> and run the installer.
+2. Install Homebrew from <https://brew.sh> by pasting the command shown on that page into Terminal, then install FFmpeg:
+
+   ```bash
+   brew install ffmpeg
+   ```
+
+**Linux.**
+Install Python 3.12 or newer and FFmpeg with your distribution's package manager.
+
+**Then, on every system,** go to the repository folder and make a virtual environment, a private copy of Python for this repository, and install the packages into it.
+On Windows:
+
+```bash
+py -3.12 -m venv .venv
+source .venv/Scripts/activate
+```
+
+On macOS and Linux:
+
+```bash
+python3.12 -m venv .venv
+source .venv/bin/activate
+```
+
+Then, on both:
+
+```bash
+pip install -r requirements.txt
+ffmpeg -version
+pytest scripts/tests
+```
+
+`ffmpeg -version` prints the FFmpeg version, and `pytest` should end with `passed` and no `failed`.
+Run the `source` line again in every new terminal;
+the prompt then starts with `(.venv)`, and `python` means the Python of the repository.
+
+## In the lab: run the experiment
+
+The example is robot R5, left wheel, motor m9;
+use your own robot (`R1` to `R8`), side (`L` or `R`), and motor number, written on the motor.
+
+1. **Connect to the robot.**
+   Your laptop must be on the same Wi-Fi network as the robot;
+   the teaching assistants give you the robot's user name, address, and password in class.
+   Windows 10 and 11, macOS, and Linux include `ssh`;
+   on an iPad, install an SSH app such as **Termius** from the App Store.
+
+   ```bash
+   ssh <user>@<address>
+   ```
+
+   The first time, SSH asks whether to trust the robot: type `yes`.
+   The password does not show while you type it.
+2. **Prepare the Pi.**
+   Stop the robot's own driver, which holds the motors, go to the folder of the test script, and start `tmux`, so that a test continues if the connection drops (the same command reconnects):
+
+   ```bash
+   sudo systemctl stop cherry
+   cd ~/experiments
+   tmux new -A -s run
+   ```
+
+3. **Record clip E1, the dense sweep, in one video.**
+   Start the video with the wheel, the blue tape, and the green LED in view, wait about 3 seconds, and run both directions, the second after the first prints `Done (completed)`:
+
+   ```bash
+   python3 motor_trial.py A --robot R5 --side L --motor m9 \
+     --camera-fps 240 --direction forward --start 0.10 --top 0.36 \
+     --step 0.02 --hold 2 --repeat 1
+   python3 motor_trial.py A --robot R5 --side L --motor m9 \
+     --camera-fps 240 --direction backward --start 0.10 --top 0.36 \
+     --step 0.02 --hold 2 --repeat 1
+   ```
+
+   Stop the video after the second `Done (completed)`.
+4. **Record clip E2, the steps 0 → 0.6 → 1.0 → 0.6 → 0, in a second video:**
+
+   ```bash
+   python3 motor_trial.py C --robot R5 --side L --motor m9 \
+     --camera-fps 240 --base 0.6 --delta 0.40 --settle 3 --hold 3 \
+     --rest 2 --repeat 1 --repeats 3
+   ```
+
+5. **Write down** each video's name, below, and the trial IDs the script prints.
+   Ctrl+C stops the motors at once;
+   `exit` closes the connection.
+
+Name the videos exactly, with the recording date as `YYYYMMDD`:
+
+| Clip | Video name | `--experiment` |
+|---|---|---|
+| E1 | `R5-L-m9_A_sweep_dense_forward-backward_010to036by020_rep01_20261112` | `A-dense` |
+| E2 | `R5-L-m9_C_b060p040_rep01-03_20261112` | `C` |
+
+The figure script takes exactly one video of each kind, so give any other clip a name that does not contain `_A_sweep_dense_` or `_C_b060p040`.
+
+**Copy the files to the laptop.**
+Copy each original video from the phone by cable or memory card, never through a messaging app, which compresses the video and changes its timing.
+Rename it to its video name, keep its extension (`.mp4` or `.MOV`), and never rename it again.
+Keep the videos outside the repository and back them up.
+Copy the Pi logs on the laptop, in Git Bash or Terminal, into your motor folder, which step 1 below creates:
+
+```bash
+scp '<user>@<address>:fresh_motor_study/data/raw/R5-L-m9/*' \
+  data/raw/db17-r5-left-m9/pi/
+scp '<user>@<address>:fresh_motor_study/metadata/motor_mapping.json' \
+  data/raw/db17-r5-left-m9/pi/
+```
 
 ## Using the code
 
-### Install once
-
-You need Python 3.12 or newer, which NumPy and SciPy require, and FFmpeg (`ffmpeg` and `ffprobe` on the PATH).
-From the repository root:
-
-```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-```
-
-On Windows in Git Bash, activate with `source .venv/Scripts/activate`.
-Activate again in every new terminal, and check the installation with `pytest scripts/tests`.
-
 ### From video to figures
 
-Run every command from the repository root.
-The example is robot R5, left wheel, motor m9;
-replace the names with yours.
+Run every command from the repository root, with the virtual environment active.
+The member who keeps the videos runs these steps.
+In Git Bash, a Windows path such as `C:\Users\ann\Videos\clip.mp4` is written `/c/Users/ann/Videos/clip.mp4`;
+dragging a file into the Git Bash window types its path for you.
 
-1. Create the motor folder and copy the Pi logs into it unchanged, as described under [Data](#data).
-2. Track each video:
+1. **Create the motor folder** with its files, before you copy the Pi logs into its `pi/` folder:
 
    ```bash
-   python scripts/track_video.py <video-folder>/<run>.mp4 \
+   python scripts/start_motor_folder.py data/raw/db17-r5-left-m9
+   ```
+
+   It makes `frames/`, `pi/`, and `manual/`, the header lines of `runs.csv` and `trials.csv`, an example `setup.toml`, and a `README.md` for your group's notes.
+   Check every value of `setup.toml`.
+   After copying the Pi logs, write `trials.csv` from them, telling the script which video holds which trials:
+
+   ```bash
+   python scripts/start_motor_folder.py data/raw/db17-r5-left-m9 --trials \
+       --run R5-L-m9_A_sweep_dense_forward-backward_010to036by020_rep01_20261112 \
+       --match _010to036by020_
+   python scripts/start_motor_folder.py data/raw/db17-r5-left-m9 --trials \
+       --run R5-L-m9_C_b060p040_rep01-03_20261112 --match _C_b060p040_
+   ```
+
+   `--run` is the video name without its extension, and `--match` a part of the names of that video's trials.
+   Every trial needs its video, or step 3 stops;
+   the script prints which trials still lack one.
+
+2. **Track each video:**
+
+   ```bash
+   python scripts/track_video.py <video-folder>/<video name>.mp4 \
        --folder data/raw/db17-r5-left-m9 --mode stand \
        --camera "phone slow motion 1280x720 240 fps" \
-       --experiment <label> --sync log+led \
+       --experiment A-dense --sync log+led \
        --pi-log "pi/<trial1>_events.csv;pi/<trial2>_events.csv" \
        --trials "<trial1>;<trial2>" \
        >> data/raw/db17-r5-left-m9/runs.csv
    ```
 
+   Use `--experiment A-dense` for E1 and `C` for E2, and list the clip's trial IDs, which the Pi printed, in `--pi-log` and `--trials`, in the same order.
    The defaults are the kit's blue marker tape and green sync LED.
    Check the first line it prints, `<n> frames, marker absent in <m>`;
    if `m` is large, give a wider colour rule with `--marker-colour`, and use the same rule for every clip.
    To track a video again, first delete its row from `runs.csv`, then rerun the command with `--force`, which replaces the frame table;
    `runs.csv` must list each run once.
-3. Process the motor folder and check its quality:
+3. **Process the motor folder and check its quality:**
 
    ```bash
    python scripts/process_raw.py data/raw/db17-r5-left-m9
@@ -113,7 +266,7 @@ replace the names with yours.
    A warning means the data should not be used for the quantities it affects:
    use a clean trial of the same condition, or record the clip again.
    Every trial should report `log+led`, which shows the LED was read.
-4. Draw the figures and compute the numbers:
+4. **Draw the figures and compute the numbers:**
 
    ```bash
    python scripts/plot_case_study_csme2026.py --data data \
@@ -121,12 +274,13 @@ replace the names with yours.
        --figures build/figures/db17-r5-left-m9
    ```
 
-   It needs one run of the dense sweep (E1, run name `R5-L-m9_A_sweep_dense_...`) and one run of the steps 0 → 0.6 → 1.0 → 0.6 → 0 (E2, run name `R5-L-m9_C_b060p040...`), and stops if it finds more than one.
-   Copy the figures your report uses into its `figures/` folder.
-5. Optional, for the wheel-overlay figure, run before step 4:
+   It needs exactly one E1 and one E2 video, named as in the table above.
+   Copy the figures your report uses into its `figures/` folder, and `results.tex` into the report folder:
+   `\input{results.tex}` in the preamble of your report makes each number a macro, such as `\StartDuty`, so the text always matches the data.
+5. **Optional,** for the wheel-overlay figure, run before step 4:
 
    ```bash
-   python scripts/select_wheel_frames.py <video-folder>/<run>.mp4 --turns ccw
+   python scripts/select_wheel_frames.py <video-folder>/<video name>.mp4 --turns ccw
    ```
 
    with `--turns` set to `positive_duty_turns` of the motor's `setup.toml`.
@@ -288,7 +442,7 @@ Its minimal skeleton is:
 \end{document}
 ```
 
-Compile it into `build/` from the repository root, which runs `pdflatex` and `biber` as often as needed:
+Compile it into `build/` from the repository root, which runs `pdflatex` and `biber` as often as needed, or on Overleaf, as [Compiling LaTeX](#appendix-compiling-latex) explains:
 
 ```bash
 latexmk -pdf -cd \
@@ -381,16 +535,27 @@ The first time you push, git asks you to sign in to GitHub:
 
 ### 5. Hand in the data: pull request 1
 
-Work on a branch, a named line of commits, so that your hand-in stays separate from `main`:
+The member who ran the analysis works on a branch, a named line of commits, so that the hand-in stays separate from `main`:
 
 ```bash
 git switch -c group03-data
 cd data/raw/db17-r5-left-m9
 git add README.md setup.toml runs.csv trials.csv quality.md
-git add frames/*.parquet pi/* manual/*
+git add frames/*.parquet pi/*
+git add manual/*
+git status
 git commit -m "Add data of robot R5, left wheel, motor m9"
 git push -u origin group03-data
 cd ../../..
+```
+
+`git status` must list every file of the folder under *Changes to be committed*;
+if a `git add` line printed `fatal: pathspec ... did not match`, that line added nothing, so check the file names and add them again.
+The other members get the branch with:
+
+```bash
+git fetch origin
+git switch group03-data
 ```
 
 - `switch -c` creates the branch and moves to it.
@@ -401,7 +566,7 @@ cd ../../..
 - `git pull` later fetches the commits your group members pushed;
   run it each time before you start work.
 
-Then open your fork on GitHub, click **Contribute**, and **Open pull request**.
+Then open your fork on GitHub, choose `group03-data` in the branch menu, or click **Compare & pull request** in the yellow box that follows a push, and click **Contribute** and **Open pull request**.
 
 ![Contribute and Open pull request](assets/image/github-contribute-pull-request.jpg)
 
@@ -416,17 +581,23 @@ A teaching assistant reviews the pull request and writes comments on it.
 Fix what they ask for on the same branch, then `git add`, `git commit`, and `git push` again:
 the pull request updates itself.
 Do not open a new pull request.
-When the teaching assistant approves it, the data is part of this repository.
+When the teaching assistant approves and merges it, the data is part of this repository.
+
+**If git refuses to push** because someone pushed first, run `git pull`.
+If git then reports a *conflict*, open each file it names:
+keep the lines you want, delete the lines `<<<<<<<`, `=======`, and `>>>>>>>`, then `git add` the file, `git commit`, and `git push`.
+Ask a teaching assistant if you are unsure.
 
 ### 7. Hand in the report: pull request 2
 
-After the data pull request is approved, start a new branch from the latest version of this repository, which now holds your data:
+After the data pull request is merged, start a new branch from the latest version of this repository, which now holds your data:
 
 ```bash
 git fetch upstream
 git switch -c group03-report upstream/main
 git add doc/report_Andersson2026_WheelDynamics_Group03/main.tex
 git add doc/report_Andersson2026_WheelDynamics_Group03/references.bib
+git add doc/report_Andersson2026_WheelDynamics_Group03/results.tex
 git add doc/report_Andersson2026_WheelDynamics_Group03/figures/fig-step-06.pdf
 git commit -m "Add the group report"
 git push -u origin group03-report
@@ -468,7 +639,8 @@ Instead of steps 4 and 5:
 
 6. Open the pull request with **Contribute** as in step 5.
 
-For the report, use **Overleaf** (<https://www.overleaf.com>) in Safari: upload the files of the example report to a new project, write, and compile there.
+For the report, use **Overleaf** in Safari, as [Compiling LaTeX](#appendix-compiling-latex) explains, and write and compile there.
+Copy the Pi logs on a laptop, because `scp` needs a terminal.
 Then download the source with **Menu**, **Download**, **Source**, and upload `main.tex`, `references.bib`, and the figures to your report folder on a branch `group03-report`, made after the data pull request is approved.
 Before you make that branch, click **Sync fork** on your fork, so that it holds the approved data.
 
@@ -477,32 +649,41 @@ Before you make that branch, click **Sync fork** on your fork, so that it holds 
 Some of its features need a paid unlock;
 check in the App Store which ones before you rely on it.
 
-## Connecting to the Duckiebot
+## Appendix: compiling LaTeX
 
-You control the robot's Raspberry Pi from your computer with SSH, a terminal on the Pi, and copy its logs with `scp`.
-Windows 10 and 11, macOS, and Linux include both commands;
-type them in Git Bash, PowerShell, or Terminal.
-On an iPad, install an SSH app such as **Termius** from the App Store.
+Read this only if you have never compiled a LaTeX document.
+A `.tex` file is the source of a document;
+compiling turns it into a PDF.
+The lecture slides need the XeLaTeX engine, and the report pdfLaTeX with Biber.
 
-Your computer must be on the same Wi-Fi network as the robot.
-The teaching assistants give you the robot's user name, address, and password.
+**Without installing anything, on any computer or an iPad: Overleaf.**
+
+1. Create a free account at <https://www.overleaf.com>.
+2. On the page of this repository, click **Code** and **Download ZIP**, and unzip the file:
+   double-click it on Windows or macOS, or tap it in the Files app on an iPad.
+3. Compress only the folder you want to compile, such as `doc/lecture_Nordling2026_Exp2/`, into a new ZIP file:
+   right-click it and choose **Compress** (macOS) or **Send to**, **Compressed (zipped) folder** (Windows), or touch and hold it in the Files app and choose **Compress** (iPad).
+4. In Overleaf, click **New project**, **Upload project**, and choose that ZIP file.
+5. Open **Menu**, and set **Compiler** to **XeLaTeX** for the slides, or **pdfLaTeX** for the report.
+   Overleaf runs Biber itself.
+6. Click **Recompile**, then the download button, to get the PDF.
+
+For your report, upload a copy of the folder of the example report in the same way, write in Overleaf, and download the source afterwards with **Menu**, **Download**, **Source**, to commit it.
+
+**On Windows 11: TeX Live.**
+Download `install-tl-windows.exe` from <https://tug.org/texlive/windows.html>, run it, and accept the defaults.
+The download is over 6 GB, so start it at home well before you need it.
+TeX Live includes `latexmk`, `xelatex`, `pdflatex`, and `biber`.
+Close Git Bash and open it again, then compile from the repository root:
 
 ```bash
-ssh <user>@<address>
+latexmk -xelatex -cd -outdir=../../build/lecture_Nordling2026_Exp2 \
+  doc/lecture_Nordling2026_Exp2/main.tex
+latexmk -pdf -cd \
+  -outdir=../../build/report_Andersson2026_WheelDynamics_Group03 \
+  doc/report_Andersson2026_WheelDynamics_Group03/main.tex
 ```
 
-- The first time, SSH asks whether to trust the robot: type `yes`.
-- The password does not show while you type it.
-- Start `tmux new -A -s run` on the Pi before a test, so that the test continues if the connection drops;
-  the same command reconnects.
-- Ctrl+C stops the motors;
-  `exit` closes the connection.
+The PDFs appear in `build/`.
 
-Copy the Pi logs of your motor into your motor folder, on your computer, not on the Pi:
-
-```bash
-scp '<user>@<address>:fresh_motor_study/data/raw/R5-L-m9/*' \
-  data/raw/db17-r5-left-m9/pi/
-scp '<user>@<address>:fresh_motor_study/metadata/motor_mapping.json' \
-  data/raw/db17-r5-left-m9/pi/
-```
+**On macOS:** install MacTeX from <https://tug.org/mactex/>, which contains the same programs, and use the same commands in Terminal.
