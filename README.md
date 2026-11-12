@@ -386,8 +386,8 @@ Work on a branch, a named line of commits, so that your hand-in stays separate f
 ```bash
 git switch -c group03-data
 cd data/raw/db17-r5-left-m9
-git add setup.toml runs.csv trials.csv quality.md
-git add frames/*.parquet pi/*
+git add README.md setup.toml runs.csv trials.csv quality.md
+git add frames/*.parquet pi/* manual/*
 git commit -m "Add data of robot R5, left wheel, motor m9"
 git push -u origin group03-data
 cd ../../..
