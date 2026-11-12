@@ -58,7 +58,7 @@ from duckiebot_analysis.tracking.track import (
     TrackConfig,
     track_video,
 )
-from duckiebot_analysis.tracking.video import probe_video
+from duckiebot_analysis.tracking.video import probe_video, sha256_file
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -170,17 +170,40 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return ap.parse_args(argv)
 
 
-def tracked_as(folder: Path, old: str) -> list[str]:
-    """Return where a run is already recorded: its frame table, runs.csv, both."""
-    found = []
-    if frames_path(folder, old).exists():
-        found.append(str(frames_path(folder, old)))
+def tracked_as(folder: Path, video: Path, run: str) -> dict[str, list[str]]:
+    """Return the other run ids the video is already tracked under, and where.
+
+    A runs.csv row is the same video when its video_file is the video's file
+    name or its video_sha256 is the video's checksum, whatever run id it
+    carries. For a name with a doubled video extension, such as V1.mp4.MOV, a
+    row or frame table named after Path.stem, the run id of an older rule,
+    also counts, such as a table whose row was never added.
+
+    Returns:
+        Each old run id, other than run, with its frame table and runs.csv row.
+    """
+    found: dict[str, list[str]] = {}
+    # Path.stem was the run id only of a name with a doubled video extension;
+    # for V1.notes, Path.stem V1 is the run of another video, V1.mp4.
+    stem = video.stem if video.stem != run and video.name != run else None
     runs = folder / "runs.csv"
     if runs.is_file():
         with open(runs, encoding="utf-8", errors="replace", newline="") as fh:
-            if any(row.get("run") == old for row in csv.DictReader(fh)):
-                found.append(f"a row of {runs}")
-    return found
+            rows = [r for r in csv.DictReader(fh) if r.get("run") not in (None, run)]
+        sha = sha256_file(video) if rows and video.is_file() else None
+        for row in rows:
+            if (
+                row.get("video_file") == video.name
+                or (sha is not None and row.get("video_sha256") == sha)
+                or row["run"] == stem
+            ):
+                found.setdefault(row["run"], []).append(f"a row of {runs}")
+    if stem is not None:
+        found.setdefault(stem, [])
+    for old, where in found.items():
+        if frames_path(folder, old).exists():
+            where.insert(0, str(frames_path(folder, old)))
+    return {old: where for old, where in found.items() if where}
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -207,19 +230,19 @@ def main(argv: list[str] | None = None) -> int:
                 f"({', '.join(VIDEO_EXTENSIONS)}); its run is the whole name {run}",
                 file=sys.stderr,
             )
-        # Tracked before under the old run id, Path.stem: a second frame table
-        # and runs.csv row of the same video would count it twice.
-        old = tracked_as(args.folder, args.video.stem)
-        if old and not args.force:
-            print(
-                f"error: {args.video.name} was tracked before as run "
-                f"{args.video.stem} ({' and '.join(old)}), but its run is now "
-                f"{run}; to track it again, delete that frame table and its "
-                "runs.csv row, or keep the old ones and do not track it again; "
-                "--force tracks it anyway, beside the old ones",
-                file=sys.stderr,
-            )
-            return 1
+    # Tracked before under another run id: a second frame table and runs.csv
+    # row of the same video would count it twice.
+    old = tracked_as(args.folder, args.video, run)
+    if old and not args.force:
+        before = "; ".join(f"{k} ({' and '.join(v)})" for k, v in old.items())
+        print(
+            f"error: {args.video.name} was tracked before as run {before}, but "
+            f"its run is now {run}; to track it again, delete that frame table "
+            "and its runs.csv row, or keep the old ones and do not track it "
+            "again; --force tracks it anyway, beside the old ones",
+            file=sys.stderr,
+        )
+        return 1
     out = frames_path(args.folder, run)
     if out.exists() and not args.force:
         print(

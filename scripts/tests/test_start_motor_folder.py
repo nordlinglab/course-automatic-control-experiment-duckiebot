@@ -757,3 +757,101 @@ def test_track_video_notes_a_dropped_extension_only_when_one_was(
         assert notes == []
     else:
         assert len(notes) == 1 and note in notes[0]
+
+
+def _runs_row(run: str, video_file: str, sha: str) -> str:
+    cells = dict.fromkeys(RUNS_COLUMNS, "")
+    cells.update(run=run, video_file=video_file, video_sha256=sha)
+    return ",".join(cells[c] for c in RUNS_COLUMNS) + "\n"
+
+
+@pytest.mark.parametrize("by", ["video_file", "video_sha256"])
+def test_track_video_stops_at_a_video_tracked_under_any_other_run_id(
+    folder, by, capsys
+):
+    import hashlib
+
+    import track_video
+
+    assert _run(str(folder)).returncode == 0
+    video = folder / "V1.mp4"
+    video.write_bytes(b"not really a video")
+    sha = hashlib.sha256(video.read_bytes()).hexdigest()
+    runs = folder / "runs.csv"
+    # Tracked before under a run id no rule derives from this name.
+    row = (
+        _runs_row("Take-A", "V1.mp4", "0" * 64)
+        if by == "video_file"
+        else _runs_row("Take-A", "renamed.mp4", sha)
+    )
+    with open(runs, "a", encoding="utf-8", newline="") as fh:
+        fh.write(row)
+    old = folder / "frames" / "Take-A.parquet"
+    old.write_bytes(b"old")
+    before = runs.read_bytes()
+    argv = [str(video), "--folder", str(folder), "--mode", "stand"]
+    assert track_video.main([*argv, "--camera", "c"]) == 1
+    err = capsys.readouterr().err
+    line = next(x for x in err.splitlines() if x.startswith("error:"))
+    assert "Take-A" in line and "its run is now V1" in line
+    assert str(old) in line and "runs.csv" in line and "--force" in line
+    assert runs.read_bytes() == before and old.read_bytes() == b"old"
+    assert not (folder / "frames" / "V1.parquet").exists()
+
+
+def test_track_video_force_tracks_a_video_tracked_under_another_run_id(
+    folder, capsys, monkeypatch
+):
+    import track_video
+
+    assert _run(str(folder)).returncode == 0
+    video = folder / "V1.mp4"
+    video.write_bytes(b"x")
+    with open(folder / "runs.csv", "a", encoding="utf-8", newline="") as fh:
+        fh.write(_runs_row("Take-A", "V1.mp4", "0" * 64))
+
+    class Tracked(Exception):
+        pass
+
+    def reached(*_args, **_kwargs):
+        raise Tracked
+
+    # Stop where the tracking starts: the check let the video through.
+    monkeypatch.setattr(track_video, "track_video", reached)
+    argv = [str(video), "--folder", str(folder), "--mode", "stand", "--camera", "c"]
+    with pytest.raises(Tracked):
+        track_video.main([*argv, "--force"])
+    assert "error:" not in capsys.readouterr().err
+
+
+def test_track_video_ignores_a_row_of_the_same_run_or_another_video(folder, capsys):
+    import track_video
+
+    assert _run(str(folder)).returncode == 0
+    video = folder / "V1.mp4"
+    video.write_bytes(b"x")
+    with open(folder / "runs.csv", "a", encoding="utf-8", newline="") as fh:
+        fh.write(_runs_row("V2", "V2.mp4", "0" * 64))
+        fh.write(_runs_row("V1", "V1.mp4", "0" * 64))
+    (folder / "frames" / "V1.parquet").write_bytes(b"")
+    argv = [str(video), "--folder", str(folder), "--mode", "stand", "--camera", "c"]
+    assert track_video.main(argv) == 1
+    err = capsys.readouterr().err
+    assert "tracked before" not in err and "exists" in err
+
+
+def test_track_video_takes_no_other_videos_run_for_an_old_run_id(folder, capsys):
+    import track_video
+
+    assert _run(str(folder)).returncode == 0
+    # V1.mp4 is run V1; V1.notes, without a video extension, is run V1.notes.
+    with open(folder / "runs.csv", "a", encoding="utf-8", newline="") as fh:
+        fh.write(_runs_row("V1", "V1.mp4", "0" * 64))
+    (folder / "frames" / "V1.parquet").write_bytes(b"")
+    (folder / "frames" / "V1.notes.parquet").write_bytes(b"")
+    video = folder / "V1.notes"
+    video.write_bytes(b"x")
+    argv = [str(video), "--folder", str(folder), "--mode", "stand", "--camera", "c"]
+    assert track_video.main(argv) == 1
+    err = capsys.readouterr().err
+    assert "tracked before" not in err and "V1.notes.parquet exists" in err
