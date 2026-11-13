@@ -592,7 +592,8 @@ _ANY_EXTS = st.sampled_from(
     suppress_health_check=[HealthCheck.function_scoped_fixture],
 )
 @given(
-    st.from_regex(r"[A-Za-z0-9][A-Za-z0-9_-]{0,12}", fullmatch=True),
+    # Dots and spaces too: V1.notes or "take 2.v2" is a run name of its own.
+    st.from_regex(r"[A-Za-z0-9][A-Za-z0-9_. -]{0,12}", fullmatch=True),
     st.lists(_ANY_EXTS, max_size=3),
 )
 def test_track_video_and_run_give_any_video_name_the_same_run(
@@ -606,11 +607,18 @@ def test_track_video_and_run_give_any_video_name_the_same_run(
     out, err = io.StringIO(), io.StringIO()
     with redirect_stdout(out), redirect_stderr(err):
         assert start_motor_folder.main([str(folder)]) == 0
-        _write_meta(folder, _meta(_E2.format(1, 1), "2026-11-05T12:01:00", _SCHEDULE_B))
-        argv = [str(folder), "--trials", "--run", video, "--match", "_C_"]
+        for k in (1, 2):
+            when = f"2026-11-05T12:0{k}:00"
+            _write_meta(folder, _meta(_E2.format(k, k), when, _SCHEDULE_B))
+        argv = [str(folder), "--trials", "--run", video, "--match", "_rep01_"]
         assert start_motor_folder.main(argv) == 0
     run = _rows(folder)[0]["run"]
     assert run
+    # The run name itself, given to --run, is kept unchanged.
+    with redirect_stdout(out), redirect_stderr(err):
+        argv = [str(folder), "--trials", "--run", run, "--match", "_rep02_"]
+        assert start_motor_folder.main(argv) == 0
+    assert _rows(folder)[1]["run"] == run
     # track_video.py stops at the frame table of the same run, naming it.
     frames = folder / "frames" / f"{run}.parquet"
     frames.write_bytes(b"")
