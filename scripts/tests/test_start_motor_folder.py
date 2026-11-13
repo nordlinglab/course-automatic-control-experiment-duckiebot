@@ -818,16 +818,16 @@ def test_track_video_force_tracks_a_video_tracked_under_another_run_id(
     with open(folder / "runs.csv", "a", encoding="utf-8", newline="") as fh:
         fh.write(_runs_row("Take-A", "V1.mp4", "0" * 64))
 
-    class Tracked(Exception):
+    class TrackedError(Exception):
         pass
 
     def reached(*_args, **_kwargs):
-        raise Tracked
+        raise TrackedError
 
     # Stop where the tracking starts: the check let the video through.
     monkeypatch.setattr(track_video, "track_video", reached)
     argv = [str(video), "--folder", str(folder), "--mode", "stand", "--camera", "c"]
-    with pytest.raises(Tracked):
+    with pytest.raises(TrackedError):
         track_video.main([*argv, "--force"])
     assert "error:" not in capsys.readouterr().err
 
@@ -872,7 +872,9 @@ def test_trials_reports_a_run_that_names_no_tracked_video(folder, known_by):
         when = f"2026-11-05T12:0{k}:00"
         _write_meta(folder, _meta(_E2.format(k, k), when, _SCHEDULE_B))
     first, second = _E2.format(1, 1), _E2.format(2, 2)
-    assert _run(str(folder), "--trials", "--run", "V1", "--match", first).returncode == 0
+    assert (
+        _run(str(folder), "--trials", "--run", "V1", "--match", first).returncode == 0
+    )
     # Filled under an older rule that kept .avi.
     trials = folder / "trials.csv"
     text = trials.read_text(encoding="utf-8")
@@ -964,10 +966,14 @@ def test_track_video_names_a_runs_csv_not_in_utf8(folder, capsys):
 
     assert _run(str(folder)).returncode == 0
     runs = folder / "runs.csv"
-    runs.write_bytes(runs.read_bytes() + _runs_row("Tåke", "V1.mp4", "0").encode("latin-1"))
+    runs.write_bytes(
+        runs.read_bytes() + _runs_row("Tåke", "V1.mp4", "0").encode("latin-1")
+    )
     video = folder / "V1.mp4"
     video.write_bytes(b"x")
     argv = [str(video), "--folder", str(folder), "--mode", "stand", "--camera", "c"]
     assert track_video.main(argv) == 1
-    line = next(x for x in capsys.readouterr().err.splitlines() if x.startswith("error:"))
+    line = next(
+        x for x in capsys.readouterr().err.splitlines() if x.startswith("error:")
+    )
     assert str(runs) in line and "UTF-8" in line

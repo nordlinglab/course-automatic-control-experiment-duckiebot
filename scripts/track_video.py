@@ -202,7 +202,9 @@ def tracked_as(folder: Path, video: Path, run: str) -> dict[str, list[str]]:
         columns = ("run", "video_file", "video_sha256")
         try:
             rows = [
-                r for r in read_csv_columns(runs, columns) if r["run"] not in (None, run)
+                r
+                for r in read_csv_columns(runs, columns)
+                if r["run"] not in (None, run)
             ]
         except UnicodeDecodeError:
             raise ValueError(

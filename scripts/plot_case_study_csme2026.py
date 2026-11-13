@@ -179,8 +179,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         choices=list(FIGURES),
         metavar="NAME",
         help="draw only the figure fig-NAME.pdf and write all macros (methods "
-        f"and wheel-overlay write none); NAME is one of {', '.join(FIGURES)}; students draw one "
-        "at a time (default: all seven, for the article)",
+        f"and wheel-overlay write none); NAME is one of {', '.join(FIGURES)}; "
+        "students draw one at a time (default: all seven, for the article)",
     )
     p.add_argument(
         "--macros",
