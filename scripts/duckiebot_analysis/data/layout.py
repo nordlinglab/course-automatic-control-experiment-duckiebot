@@ -224,6 +224,35 @@ def motor_ids(folder: str | Path) -> tuple[str, ...]:
     return _parse_folder(folder)[2]
 
 
+# Extensions of the videos a phone or camera records, compared in lower case.
+VIDEO_EXTENSIONS = (".mp4", ".mov", ".m4v", ".avi", ".mkv", ".3gp", ".webm")
+
+
+def strip_video_extensions(name: str) -> str:
+    """Return a video name without every trailing video extension.
+
+    A doubled extension, such as name.mp4.MOV made by renaming a video while
+    the file manager hides extensions, is dropped whole, so that every script
+    gives one video one run identifier; a name that is only an extension, such
+    as .mp4, is kept.
+    """
+    while name.lower().endswith(VIDEO_EXTENSIONS) and name.rfind(".") > 0:
+        name = name[: name.rfind(".")]
+    return name
+
+
+def run_of_video(video: str | Path) -> str:
+    """Return the run identifier of a video file: its name without extensions.
+
+    The one rule for track_video.py, given the file, and start_motor_folder.py
+    --run, given its name. Only trailing video extensions (VIDEO_EXTENSIONS,
+    in any case) are dropped, as :func:`strip_video_extensions`; a name ending
+    in anything else, such as V1.notes, is kept whole, so that the rule gives
+    a run identifier back unchanged.
+    """
+    return strip_video_extensions(Path(video).name)
+
+
 def frames_path(folder: str | Path, run: str) -> Path:
     """Return the frame table path ``<folder>/frames/<run>.parquet``."""
     return Path(folder) / "frames" / f"{run}.parquet"
@@ -232,8 +261,17 @@ def frames_path(folder: str | Path, run: str) -> Path:
 # ---------------------------------------------------------------- CSV helpers
 
 
-def _read_csv(path: Path, columns: tuple[str, ...]) -> list[dict[str, str | None]]:
-    with open(path, encoding="utf-8", newline="") as fh:
+def read_csv_columns(
+    path: Path, columns: tuple[str, ...]
+) -> list[dict[str, str | None]]:
+    """Return the given columns of each row of a CSV file, None for empty cells.
+
+    A byte order mark, which Excel and Notepad write, is skipped.
+
+    Raises:
+        ValueError: If the first line lacks a column.
+    """
+    with open(path, encoding="utf-8-sig", newline="") as fh:
         reader = csv.DictReader(fh)
         header = reader.fieldnames or []
         missing = [c for c in columns if c not in header]
@@ -306,7 +344,7 @@ def read_runs(folder: str | Path) -> list[RunRecord]:
     path = Path(folder) / "runs.csv"
     out = []
     first: dict[str, int] = {}
-    for k, row in enumerate(_read_csv(path, RUNS_COLUMNS), 1):
+    for k, row in enumerate(read_csv_columns(path, RUNS_COLUMNS), 1):
         where = _where(path, k)
         run = _required(row, "run", where)
         if run in first:
@@ -395,7 +433,7 @@ def read_trials(folder: str | Path) -> list[TrialRecord]:
     """
     path = Path(folder) / "trials.csv"
     out = []
-    for k, row in enumerate(_read_csv(path, TRIALS_COLUMNS), 1):
+    for k, row in enumerate(read_csv_columns(path, TRIALS_COLUMNS), 1):
         where = _where(path, k)
         out.append(
             TrialRecord(
@@ -545,7 +583,7 @@ def read_measurements(folder: str | Path) -> list[Measurement]:
     if not path.exists():
         return []
     out = []
-    for k, row in enumerate(_read_csv(path, MEASUREMENT_COLUMNS), 1):
+    for k, row in enumerate(read_csv_columns(path, MEASUREMENT_COLUMNS), 1):
         where = _where(path, k)
         repeat = _number(row, "repeat", where, int)
         if repeat is None or repeat < 1:

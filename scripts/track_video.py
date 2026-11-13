@@ -18,8 +18,11 @@
 
 Writes <folder>/frames/<run>.parquet and prints the run's row for runs.csv
 (§4) to stdout, so it can be appended with >>. The run identifier is the video
-file name without extension, .mp4 or .MOV. An existing frame table is never
-overwritten unless --force is given.
+file name without its video extension: .mp4 or .MOV from a phone, or .m4v,
+.avi, .mkv, .3gp, or .webm, in any case; a doubled one, such as .mp4.MOV, is
+dropped whole, with a note, as start_motor_folder.py --run does. An existing
+frame table is never overwritten, and a video tracked before under another run
+id is not tracked again, unless --force is given.
 
 Example:
     python scripts/track_video.py \\
@@ -41,10 +44,13 @@ from duckiebot_analysis.cli import HelpFormatter
 from duckiebot_analysis.data.frames import write_frames
 from duckiebot_analysis.data.layout import (
     SYNC_LEVELS,
+    VIDEO_EXTENSIONS,
     RunRecord,
     format_runs_row,
     frames_path,
     parse_motor_folder,
+    read_csv_columns,
+    run_of_video,
 )
 from duckiebot_analysis.tracking.blobs import PRESETS
 from duckiebot_analysis.tracking.track import (
@@ -54,7 +60,7 @@ from duckiebot_analysis.tracking.track import (
     TrackConfig,
     track_video,
 )
-from duckiebot_analysis.tracking.video import probe_video
+from duckiebot_analysis.tracking.video import probe_video, sha256_file
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -62,7 +68,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     presets = ", ".join(f"{k} ({v})" for k, v in PRESETS.items())
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=HelpFormatter)
     ap.add_argument(
-        "video", type=Path, help="video file, .mp4 or .MOV, named after its run"
+        "video",
+        type=Path,
+        help=f"video file, {', '.join(VIDEO_EXTENSIONS)}, named after its run",
     )
     ap.add_argument(
         "--folder",
@@ -161,9 +169,61 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     ap.add_argument("--notes", help="runs.csv notes (default: empty)")
     ap.add_argument(
-        "--force", action="store_true", help="overwrite an existing frame table"
+        "--force",
+        action="store_true",
+        help="overwrite an existing frame table, and track a video tracked "
+        "before under another run id; its old frame table and runs.csv row are "
+        "left, so delete them yourself",
     )
     return ap.parse_args(argv)
+
+
+def tracked_as(folder: Path, video: Path, run: str) -> dict[str, list[str]]:
+    """Return the other run ids the video is already tracked under, and where.
+
+    A runs.csv row is the same video when its video_file is the video's file
+    name or its video_sha256 is the video's checksum, whatever run id it
+    carries. For a name with a doubled video extension, such as V1.mp4.MOV, a
+    row or frame table named after Path.stem, the run id of an older rule,
+    also counts, such as a table whose row was never added.
+
+    Returns:
+        Each old run id, other than run, with its frame table and runs.csv row.
+
+    Raises:
+        ValueError: If runs.csv lacks one of these columns or is not UTF-8.
+    """
+    found: dict[str, list[str]] = {}
+    # Path.stem was the run id only of a name with a doubled video extension;
+    # for V1.notes, Path.stem V1 is the run of another video, V1.mp4.
+    stem = video.stem if video.stem != run and video.name != run else None
+    runs = folder / "runs.csv"
+    if runs.is_file():
+        columns = ("run", "video_file", "video_sha256")
+        try:
+            rows = [
+                r
+                for r in read_csv_columns(runs, columns)
+                if r["run"] not in (None, run)
+            ]
+        except UnicodeDecodeError:
+            raise ValueError(
+                f"{runs} cannot be read as UTF-8; save it as UTF-8 in your editor"
+            ) from None
+        sha = sha256_file(video) if rows and video.is_file() else None
+        for row in rows:
+            if (
+                row.get("video_file") == video.name
+                or (sha is not None and row.get("video_sha256") == sha)
+                or row["run"] == stem
+            ):
+                found.setdefault(str(row["run"]), []).append(f"a row of {runs}")
+    if stem is not None:
+        found.setdefault(stem, [])
+    for old, where in found.items():
+        if frames_path(folder, old).exists():
+            where.insert(0, str(frames_path(folder, old)))
+    return {old: where for old, where in found.items() if where}
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -174,7 +234,40 @@ def main(argv: list[str] | None = None) -> int:
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
-    out = frames_path(args.folder, args.video.stem)
+    run = run_of_video(args.video)
+    if run != args.video.stem:
+        # One video, one run: start_motor_folder.py --run uses the same rule.
+        dropped = args.video.name[len(run) :]
+        if dropped:
+            print(
+                f"note: {args.video.name} ends in the video extensions {dropped}, "
+                f"all dropped; its run is {run}",
+                file=sys.stderr,
+            )
+        else:
+            print(
+                f"note: {args.video.name} does not end in a video extension "
+                f"({', '.join(VIDEO_EXTENSIONS)}); its run is the whole name {run}",
+                file=sys.stderr,
+            )
+    # Tracked before under another run id: a second frame table and runs.csv
+    # row of the same video would count it twice.
+    try:
+        old = tracked_as(args.folder, args.video, run)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    if old and not args.force:
+        before = "; ".join(f"{k} ({' and '.join(v)})" for k, v in old.items())
+        print(
+            f"error: {args.video.name} was tracked before as run {before}, but "
+            f"its run is now {run}; to track it again, delete that frame table "
+            "and its runs.csv row, or keep the old ones and do not track it "
+            "again; --force tracks it anyway, beside the old ones",
+            file=sys.stderr,
+        )
+        return 1
+    out = frames_path(args.folder, run)
     if out.exists() and not args.force:
         print(
             f"{out} exists; data/raw is never overwritten without --force",
