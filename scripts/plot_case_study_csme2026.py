@@ -65,10 +65,11 @@ from duckiebot_analysis.analysis.case_study import (
     REST_EXCEEDANCE,
     CaseStudyConfig,
     case_study,
+    check_one_wheel_folder,
     configure,
 )
 from duckiebot_analysis.cli import HelpFormatter
-from duckiebot_analysis.data.layout import motor_ids, parse_motor_folder
+from duckiebot_analysis.data.layout import motor_ids
 from duckiebot_analysis.visualization.case_study_figures import (
     make_all,
 )
@@ -201,19 +202,9 @@ def label_from_folder(folder: str) -> str:
             older one without a motor id, such as db17-r5-left, so that
             --label must be given.
     """
-    if not folder or Path(folder).name != folder:
-        raise ValueError(
-            f"{folder!r} is not a folder name; --folder takes the motor folder "
-            "name only, such as db17-r5-left-m9"
-        )
+    robot, side = check_one_wheel_folder(folder)
     if folder == MOTOR:
         return LABEL
-    robot, side = parse_motor_folder(folder)
-    if side == "both":
-        raise ValueError(
-            f"{folder}: the case study analyses one wheel; give a left or right "
-            "motor folder name, such as db17-r5-left-m9"
-        )
     ids = motor_ids(folder)
     number = re.fullmatch(r"r(\d+)", robot)
     if number is None or not ids:

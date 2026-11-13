@@ -224,6 +224,22 @@ def test_plot_label_from_folder_rejects_what_is_no_one_wheel_folder_name(
         plot.label_from_folder(folder)
 
 
+@pytest.mark.parametrize(
+    "folder",
+    ["data/raw/db17-r5-left-m9", "db17-r5-both-m9-m10", "not-a-motor-folder", ""],
+)
+def test_plot_label_and_configure_reject_a_folder_with_one_message(folder):
+    import plot_case_study_csme2026 as plot
+
+    with pytest.raises(ValueError) as by_label:
+        plot.label_from_folder(folder)
+    with pytest.raises(ValueError) as by_configure:
+        cs.configure(folder, "X1")
+    with pytest.raises(ValueError) as by_check:
+        cs.check_one_wheel_folder(folder)
+    assert str(by_label.value) == str(by_configure.value) == str(by_check.value)
+
+
 def test_plot_defaults_reproduce_the_article():
     import plot_case_study_csme2026 as plot
 

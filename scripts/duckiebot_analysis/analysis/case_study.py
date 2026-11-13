@@ -467,11 +467,24 @@ def configure(folder: str, label: str) -> CaseStudyConfig:
         ValueError: If the folder is a path, not a motor folder name, or a
             both folder.
     """
+    _, side = check_one_wheel_folder(folder)
+    return CaseStudyConfig(folder, label, f"motor_{side}")
+
+
+def check_one_wheel_folder(folder: str) -> tuple[str, str]:
+    """Return the robot and side of a one-wheel motor folder name.
+
+    The one check of --folder, for configure and the label derived from it.
+
+    Raises:
+        ValueError: If the folder is a path, not a motor folder name, or a
+            both folder.
+    """
     example = "--folder takes the motor folder name only, such as db17-r5-left-m9"
     if not folder or Path(folder).name != folder:
         raise ValueError(f"{folder!r} is not a folder name; {example}")
     try:
-        _, side = parse_motor_folder(folder)
+        robot, side = parse_motor_folder(folder)
     except ValueError as exc:
         raise ValueError(f"{exc}; {example}") from None
     if side == "both":
@@ -480,7 +493,7 @@ def configure(folder: str, label: str) -> CaseStudyConfig:
             "folder drive two; give a left or right motor folder name, such as "
             "db17-r5-left-m9"
         )
-    return CaseStudyConfig(folder, label, f"motor_{side}")
+    return robot, side
 
 
 ARTICLE = configure(MOTOR, LABEL)
