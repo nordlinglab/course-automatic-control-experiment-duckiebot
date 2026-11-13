@@ -1321,6 +1321,17 @@ def test_wheel_overlay_needs_no_data_folder_or_label(tmp_path, capsys, folder):
     assert not (figures / "results.tex").exists()
 
 
+def test_every_figure_is_drawn_with_one_call_shape():
+    import inspect
+
+    import plot_case_study_csme2026 as script
+
+    for name, fig in script.FIGURES.items():
+        if fig.draw is not None:
+            params = inspect.signature(fig.draw).parameters
+            assert len(params) == 3, name  # the case study or None, path, args
+
+
 def test_without_figure_option_all_figures_are_drawn(synthetic_data, tmp_path, capsys):
     import plot_case_study_csme2026 as script
 

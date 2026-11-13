@@ -63,6 +63,7 @@ from duckiebot_analysis.analysis.case_study import (
     LABEL,
     MOTOR,
     REST_EXCEEDANCE,
+    CaseStudy,
     CaseStudyConfig,
     case_study,
     check_one_wheel_folder,
@@ -83,16 +84,30 @@ from duckiebot_analysis.visualization.wheel_overlay_figure import (
 COMMAND = "python scripts/plot_case_study_csme2026.py"
 
 
+# Every figure is drawn from the case study (None if it needs no data), the
+# PDF path, and the command line.
+Draw = Callable[[CaseStudy | None, Path, argparse.Namespace], None]
+
+
+def _draw_rest_noise(
+    cs: CaseStudy | None, path: Path, _args: argparse.Namespace
+) -> None:
+    """Draw fig-rest-noise.pdf, the speed noise at rest that sets omega_min."""
+    if cs is None:
+        raise ValueError("fig-rest-noise.pdf needs the case study")
+    fig_rest_noise(cs.rest_noise, cs.omega_min, REST_EXCEEDANCE, path)
+
+
 @dataclasses.dataclass(frozen=True)
 class Figure:
     """One figure fig-<name>.pdf and how it is drawn.
 
     Attributes:
         what: What the figure shows, printed when it is written and in --help.
-        draw: Draws the figure into a PDF path, from the case study, the path,
-            and the command line if needs_data, else from the path and the
-            command line; None for a figure of make_all, which draws it with
-            the macros.
+        draw: Draws the figure from the case study, the PDF path, and the
+            command line; the case study is None when no drawn figure needs
+            data. None for a figure of make_all, which draws it with the
+            macros.
         needs_data: Whether the figure needs the case study of the motor.
         optional: How to make the input of an optional figure, which is
             skipped with a message when all figures are drawn and its input
@@ -100,7 +115,7 @@ class Figure:
     """
 
     what: str
-    draw: Callable[..., None] | None = None
+    draw: Draw | None = None
     needs_data: bool = True
     optional: str = ""
 
@@ -113,19 +128,16 @@ FIGURES = {
     "step-10": Figure("E2, the step from 0.6 to 1.0 against the model of 0.6 (P2)"),
     "hysteresis": Figure("E1 and E2, the speed raised and lowered (P3)"),
     "rest-noise": Figure(
-        "the speed noise at rest, which sets omega_min",
-        lambda cs, path, args: fig_rest_noise(
-            cs.rest_noise, cs.omega_min, REST_EXCEEDANCE, path
-        ),
+        "the speed noise at rest, which sets omega_min", _draw_rest_noise
     ),
     "methods": Figure(
         "schematic of the analysis methods, synthetic data only",
-        lambda path, args: fig_methods(path),
+        lambda cs, path, args: fig_methods(path),
         needs_data=False,
     ),
     "wheel-overlay": Figure(
         "the tracker's output on the frames of select_wheel_frames.py",
-        lambda path, args: fig_wheel_overlay(path, args.wheel_frames),
+        lambda cs, path, args: fig_wheel_overlay(path, args.wheel_frames),
         needs_data=False,
         optional="run select_wheel_frames.py first",
     ),
@@ -290,10 +302,7 @@ def _run(args: argparse.Namespace, config: CaseStudyConfig | None) -> int:
             continue  # drawn by make_all
         path = figures / f"fig-{name}.pdf"
         try:
-            if fig.needs_data:
-                fig.draw(cs, path, args)
-            else:
-                fig.draw(path, args)
+            fig.draw(cs, path, args)
             drawn.append(path)
         except FileNotFoundError as exc:
             if not fig.optional:
