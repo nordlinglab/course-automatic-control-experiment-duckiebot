@@ -261,8 +261,17 @@ def frames_path(folder: str | Path, run: str) -> Path:
 # ---------------------------------------------------------------- CSV helpers
 
 
-def _read_csv(path: Path, columns: tuple[str, ...]) -> list[dict[str, str | None]]:
-    with open(path, encoding="utf-8", newline="") as fh:
+def read_csv_columns(
+    path: Path, columns: tuple[str, ...]
+) -> list[dict[str, str | None]]:
+    """Return the given columns of each row of a CSV file, None for empty cells.
+
+    A byte order mark, which Excel and Notepad write, is skipped.
+
+    Raises:
+        ValueError: If the first line lacks a column.
+    """
+    with open(path, encoding="utf-8-sig", newline="") as fh:
         reader = csv.DictReader(fh)
         header = reader.fieldnames or []
         missing = [c for c in columns if c not in header]
@@ -335,7 +344,7 @@ def read_runs(folder: str | Path) -> list[RunRecord]:
     path = Path(folder) / "runs.csv"
     out = []
     first: dict[str, int] = {}
-    for k, row in enumerate(_read_csv(path, RUNS_COLUMNS), 1):
+    for k, row in enumerate(read_csv_columns(path, RUNS_COLUMNS), 1):
         where = _where(path, k)
         run = _required(row, "run", where)
         if run in first:
@@ -424,7 +433,7 @@ def read_trials(folder: str | Path) -> list[TrialRecord]:
     """
     path = Path(folder) / "trials.csv"
     out = []
-    for k, row in enumerate(_read_csv(path, TRIALS_COLUMNS), 1):
+    for k, row in enumerate(read_csv_columns(path, TRIALS_COLUMNS), 1):
         where = _where(path, k)
         out.append(
             TrialRecord(
@@ -574,7 +583,7 @@ def read_measurements(folder: str | Path) -> list[Measurement]:
     if not path.exists():
         return []
     out = []
-    for k, row in enumerate(_read_csv(path, MEASUREMENT_COLUMNS), 1):
+    for k, row in enumerate(read_csv_columns(path, MEASUREMENT_COLUMNS), 1):
         where = _where(path, k)
         repeat = _number(row, "repeat", where, int)
         if repeat is None or repeat < 1:

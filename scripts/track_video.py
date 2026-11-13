@@ -37,7 +37,6 @@ article's recordings used a white marker and a red LED.
 from __future__ import annotations
 
 import argparse
-import csv
 import sys
 from pathlib import Path
 
@@ -50,6 +49,7 @@ from duckiebot_analysis.data.layout import (
     format_runs_row,
     frames_path,
     parse_motor_folder,
+    read_csv_columns,
     run_of_video,
 )
 from duckiebot_analysis.tracking.blobs import PRESETS
@@ -189,6 +189,9 @@ def tracked_as(folder: Path, video: Path, run: str) -> dict[str, list[str]]:
 
     Returns:
         Each old run id, other than run, with its frame table and runs.csv row.
+
+    Raises:
+        ValueError: If runs.csv lacks one of these columns or is not UTF-8.
     """
     found: dict[str, list[str]] = {}
     # Path.stem was the run id only of a name with a doubled video extension;
@@ -196,8 +199,15 @@ def tracked_as(folder: Path, video: Path, run: str) -> dict[str, list[str]]:
     stem = video.stem if video.stem != run and video.name != run else None
     runs = folder / "runs.csv"
     if runs.is_file():
-        with open(runs, encoding="utf-8", errors="replace", newline="") as fh:
-            rows = [r for r in csv.DictReader(fh) if r.get("run") not in (None, run)]
+        columns = ("run", "video_file", "video_sha256")
+        try:
+            rows = [
+                r for r in read_csv_columns(runs, columns) if r["run"] not in (None, run)
+            ]
+        except UnicodeDecodeError:
+            raise ValueError(
+                f"{runs} cannot be read as UTF-8; save it as UTF-8 in your editor"
+            ) from None
         sha = sha256_file(video) if rows and video.is_file() else None
         for row in rows:
             if (
@@ -205,7 +215,7 @@ def tracked_as(folder: Path, video: Path, run: str) -> dict[str, list[str]]:
                 or (sha is not None and row.get("video_sha256") == sha)
                 or row["run"] == stem
             ):
-                found.setdefault(row["run"], []).append(f"a row of {runs}")
+                found.setdefault(str(row["run"]), []).append(f"a row of {runs}")
     if stem is not None:
         found.setdefault(stem, [])
     for old, where in found.items():
@@ -240,7 +250,11 @@ def main(argv: list[str] | None = None) -> int:
             )
     # Tracked before under another run id: a second frame table and runs.csv
     # row of the same video would count it twice.
-    old = tracked_as(args.folder, args.video, run)
+    try:
+        old = tracked_as(args.folder, args.video, run)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
     if old and not args.force:
         before = "; ".join(f"{k} ({' and '.join(v)})" for k, v in old.items())
         print(

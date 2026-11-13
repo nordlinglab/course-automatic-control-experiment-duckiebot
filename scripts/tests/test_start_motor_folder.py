@@ -924,3 +924,50 @@ def test_track_video_force_help_says_it_skips_the_tracked_before_check():
     text = " ".join(out.stdout.split())
     force = text[text.rindex("--force") :]  # its help, not the usage line
     assert "tracked before" in force and "delete" in force
+
+
+def test_track_video_reads_a_runs_csv_saved_with_a_bom(folder, capsys):
+    import track_video
+
+    assert _run(str(folder)).returncode == 0
+    runs = folder / "runs.csv"
+    # Excel and Notepad save UTF-8 with a byte order mark.
+    text = runs.read_text(encoding="utf-8") + _runs_row("Take-A", "V1.mp4", "0" * 64)
+    runs.write_text(text, encoding="utf-8-sig")
+    video = folder / "V1.mp4"
+    video.write_bytes(b"x")
+    argv = [str(video), "--folder", str(folder), "--mode", "stand", "--camera", "c"]
+    assert track_video.main(argv) == 1
+    err = capsys.readouterr().err
+    assert "error:" in err and "Take-A" in err
+
+
+def test_track_video_names_a_runs_csv_without_its_run_column(folder, capsys):
+    import track_video
+
+    assert _run(str(folder)).returncode == 0
+    runs = folder / "runs.csv"
+    header = ",".join(RUNS_COLUMNS).replace("run,", "name,", 1)
+    runs.write_text(header + "\n" + _runs_row("Take-A", "V1.mp4", "0" * 64), "utf-8")
+    video = folder / "V1.mp4"
+    video.write_bytes(b"x")
+    argv = [str(video), "--folder", str(folder), "--mode", "stand", "--camera", "c"]
+    assert track_video.main(argv) == 1
+    err = capsys.readouterr().err
+    line = next(x for x in err.splitlines() if x.startswith("error:"))
+    assert str(runs) in line and "lacks column(s) run" in line
+    assert "Traceback" not in err
+
+
+def test_track_video_names_a_runs_csv_not_in_utf8(folder, capsys):
+    import track_video
+
+    assert _run(str(folder)).returncode == 0
+    runs = folder / "runs.csv"
+    runs.write_bytes(runs.read_bytes() + _runs_row("Tåke", "V1.mp4", "0").encode("latin-1"))
+    video = folder / "V1.mp4"
+    video.write_bytes(b"x")
+    argv = [str(video), "--folder", str(folder), "--mode", "stand", "--camera", "c"]
+    assert track_video.main(argv) == 1
+    line = next(x for x in capsys.readouterr().err.splitlines() if x.startswith("error:"))
+    assert str(runs) in line and "UTF-8" in line
