@@ -263,7 +263,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"error: {exc}", file=sys.stderr)
             return 1
     try:
-        return _run(args, config)
+        return _run(args, config, names)
     except Exception as exc:
         if args.debug:
             raise
@@ -271,14 +271,15 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
 
-def _run(args: argparse.Namespace, config: CaseStudyConfig | None) -> int:
-    """Compute the results and write the figures and the macro file.
+def _run(
+    args: argparse.Namespace, config: CaseStudyConfig | None, names: list[str]
+) -> int:
+    """Compute the results and write the named figures and the macro file.
 
-    Without a config, only the figures that read no data are drawn.
+    Without a config, the names are only of figures that read no data.
     """
     figures = args.figures
     macros = args.macros if args.macros is not None else figures / "results.tex"
-    names = list(FIGURES) if args.figure is None else [args.figure]
     cs = None
     if config is None:
         figures.mkdir(parents=True, exist_ok=True)

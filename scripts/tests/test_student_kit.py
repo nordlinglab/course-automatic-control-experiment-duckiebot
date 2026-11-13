@@ -1332,6 +1332,16 @@ def test_every_figure_is_drawn_with_one_call_shape():
             assert len(params) == 3, name  # the case study or None, path, args
 
 
+def test_run_draws_the_names_main_chose(tmp_path, capsys):
+    import plot_case_study_csme2026 as script
+
+    figures = tmp_path / "figures"
+    args = script.parse_args(["--figures", str(figures)])
+    # main computes the names once and passes them on.
+    assert script._run(args, None, ["methods"]) == 0, capsys.readouterr().err
+    assert _pdfs(figures) == ["fig-methods.pdf"]
+
+
 def test_without_figure_option_all_figures_are_drawn(synthetic_data, tmp_path, capsys):
     import plot_case_study_csme2026 as script
 
