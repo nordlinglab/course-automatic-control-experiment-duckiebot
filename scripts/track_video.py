@@ -18,9 +18,11 @@
 
 Writes <folder>/frames/<run>.parquet and prints the run's row for runs.csv
 (§4) to stdout, so it can be appended with >>. The run identifier is the video
-file name without extension, .mp4 or .MOV; a doubled one, such as .mp4.MOV, is
+file name without its video extension: .mp4 or .MOV from a phone, or .m4v,
+.avi, .mkv, .3gp, or .webm, in any case; a doubled one, such as .mp4.MOV, is
 dropped whole, with a note, as start_motor_folder.py --run does. An existing
-frame table is never overwritten unless --force is given.
+frame table is never overwritten, and a video tracked before under another run
+id is not tracked again, unless --force is given.
 
 Example:
     python scripts/track_video.py \\
@@ -66,7 +68,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     presets = ", ".join(f"{k} ({v})" for k, v in PRESETS.items())
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=HelpFormatter)
     ap.add_argument(
-        "video", type=Path, help="video file, .mp4 or .MOV, named after its run"
+        "video",
+        type=Path,
+        help=f"video file, {', '.join(VIDEO_EXTENSIONS)}, named after its run",
     )
     ap.add_argument(
         "--folder",
@@ -165,7 +169,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     ap.add_argument("--notes", help="runs.csv notes (default: empty)")
     ap.add_argument(
-        "--force", action="store_true", help="overwrite an existing frame table"
+        "--force",
+        action="store_true",
+        help="overwrite an existing frame table, and track a video tracked "
+        "before under another run id; its old frame table and runs.csv row are "
+        "left, so delete them yourself",
     )
     return ap.parse_args(argv)
 

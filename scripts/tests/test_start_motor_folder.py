@@ -892,3 +892,35 @@ def test_trials_reports_a_run_that_names_no_tracked_video(folder, known_by):
     assert "--run" in out.stdout and "--match" in out.stdout
     # A filled run is never changed.
     assert trials.read_bytes() == before
+
+
+@pytest.mark.parametrize("script", ["start_motor_folder.py", "track_video.py"])
+def test_help_lists_every_video_extension_the_run_rule_drops(script):
+    from duckiebot_analysis.data.layout import VIDEO_EXTENSIONS
+
+    out = subprocess.run(
+        [sys.executable, f"scripts/{script}", "--help"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    text = " ".join(out.stdout.split())
+    # The stale text named only these two.
+    assert ".mp4 or .MOV;" not in text and ".mp4 or .MOV (" not in text
+    assert "(.mp4 or .MOV)" not in text
+    for ext in VIDEO_EXTENSIONS:
+        assert ext in text
+
+
+def test_track_video_force_help_says_it_skips_the_tracked_before_check():
+    out = subprocess.run(
+        [sys.executable, "scripts/track_video.py", "--help"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    text = " ".join(out.stdout.split())
+    force = text[text.rindex("--force") :]  # its help, not the usage line
+    assert "tracked before" in force and "delete" in force

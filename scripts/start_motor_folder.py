@@ -26,8 +26,9 @@ With --trials, it reads every pi/*_meta.json that motor_trial.py wrote and
 adds one row to trials.csv for each trial not yet listed (data/schema.md §5).
 --run and --match fill in the video (run) of the trials whose name contains
 the given text, also for trials listed earlier without a run. --run is the
-video's file name without its extension, .mp4 or .MOV; an extension given is
-dropped, with a note.
+video's file name without its video extension: .mp4 or .MOV from a phone, or
+.m4v, .avi, .mkv, .3gp, or .webm, in any case; such an extension given is
+dropped, with a note, as track_video.py does.
 
 Examples:
     python scripts/start_motor_folder.py data/raw/db17-r5-left-m9
@@ -52,6 +53,7 @@ from duckiebot_analysis.data.layout import (
     RUNS_COLUMNS,
     TRIAL_STATUSES,
     TRIALS_COLUMNS,
+    VIDEO_EXTENSIONS,
     motor_ids,
     parse_motor_folder,
     run_of_video,
@@ -149,7 +151,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument(
         "--run",
         help="with --trials and --match: the video's file name without its "
-        "extension, .mp4 or .MOV (default: none, no run is filled in)",
+        f"video extension, {', '.join(VIDEO_EXTENSIONS)} (default: none, no run "
+        "is filled in)",
     )
     p.add_argument(
         "--match",
@@ -506,9 +509,9 @@ def add_trials(folder: Path, run: str | None, match: str | None) -> int:
         more = f", and {len(empty) - 3} more" if len(empty) > 3 else ""
         print(
             f"\n{len(empty)} trial(s) have no run yet: {', '.join(empty[:3])}{more}\n"
-            "For each video, give its file name without its extension (.mp4 or "
-            ".MOV) and a text that "
-            "only the names of its trials contain:\n"
+            "For each video, give its file name without its video extension "
+            f"({', '.join(VIDEO_EXTENSIONS)}) and a text that only the names of "
+            "its trials contain:\n"
             f"  {COMMAND} {folder} --trials --run <video name> --match <text>"
         )
     return 0
