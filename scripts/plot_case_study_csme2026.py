@@ -32,9 +32,11 @@ only, so --figure methods reads no data, needs no motor folder or label, and
 writes no results.tex;
 fig-rest-noise.pdf shows the speed noise at rest that sets omega_min;
 fig-wheel-overlay.pdf shows the tracker's output on the frames that
-scripts/select_wheel_frames.py picked from a video; until that script has
-been run, it is skipped with a message when all figures are drawn, and is an
-error with --figure wheel-overlay.
+scripts/select_wheel_frames.py picked from a video, and reads only those, so
+--figure wheel-overlay also needs no motor folder or label and writes no
+results.tex; until that script has been run, the figure is skipped with a
+message when all figures are drawn, and is an error with --figure
+wheel-overlay.
 
 Examples:
     python scripts/plot_case_study_csme2026.py --folder db17-r5-left-m9 \\
@@ -122,7 +124,8 @@ FIGURES = {
     ),
     "wheel-overlay": Figure(
         "the tracker's output on the frames of select_wheel_frames.py",
-        lambda cs, path, args: fig_wheel_overlay(path, args.wheel_frames),
+        lambda path, args: fig_wheel_overlay(path, args.wheel_frames),
+        needs_data=False,
         optional="run select_wheel_frames.py first",
     ),
 }
@@ -163,7 +166,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         choices=list(FIGURES),
         metavar="NAME",
         help="draw only the figure fig-NAME.pdf and write all macros (methods "
-        f"writes none); NAME is one of {', '.join(FIGURES)}; students draw one "
+        f"and wheel-overlay write none); NAME is one of {', '.join(FIGURES)}; students draw one "
         "at a time (default: all seven, for the article)",
     )
     p.add_argument(
@@ -312,7 +315,7 @@ def _run(args: argparse.Namespace, config: CaseStudyConfig | None) -> int:
         print(path)
     if not tail:
         pdfs = ", ".join(f"fig-{n}.pdf" for n in names)
-        print(f"{macros.name} not written: {pdfs} reads no data")
+        print(f"{macros.name} not written: {pdfs} reads no case study data")
     if args.figure is not None and code == 0:
         print(f"fig-{args.figure}.pdf: {FIGURES[args.figure].what}")
     return code

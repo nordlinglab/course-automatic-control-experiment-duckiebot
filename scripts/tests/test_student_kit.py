@@ -1305,6 +1305,22 @@ def test_wheel_overlay_alone_without_frames_fails_and_says_why(
     assert _pdfs(figures) == []
 
 
+@pytest.mark.parametrize("folder", ["db17-cherry-left-m5", "db17-r5-left", "x/y"])
+def test_wheel_overlay_needs_no_data_folder_or_label(tmp_path, capsys, folder):
+    import plot_case_study_csme2026 as script
+
+    figures = tmp_path / "figures"
+    argv = ["--data", str(tmp_path / "no_data"), "--folder", folder]
+    argv += ["--figures", str(figures), "--figure", "wheel-overlay"]
+    argv += ["--wheel-frames", str(tmp_path / "no_frames")]
+    # It reads only --wheel-frames: the one error is that they are missing.
+    assert script.main(argv) == 1
+    err = capsys.readouterr().err
+    assert err.startswith("error: cannot draw") and "select_wheel_frames.py" in err
+    assert "no_data" not in err and "--folder" not in err
+    assert not (figures / "results.tex").exists()
+
+
 def test_without_figure_option_all_figures_are_drawn(synthetic_data, tmp_path, capsys):
     import plot_case_study_csme2026 as script
 
