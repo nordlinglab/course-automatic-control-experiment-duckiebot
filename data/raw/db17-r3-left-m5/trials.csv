@@ -1,0 +1,5 @@
+trial,run,script,script_commit,args,start_pi,duration_s,changes,status,notes
+R3-L-m5_C_b060p040_rep01_20261118_193336,R3-L-m5_C_b060p040_rep01-03_20261118,motor_trial.py,,,2026-11-18T19:33:49,13.0,5,completed,script SHA-256 starts d81c76229121; arguments in pi/R3-L-m5_C_b060p040_rep01_20261118_193336_meta.json (parameters)
+R3-L-m5_C_b060p040_rep02_20261118_193349,R3-L-m5_C_b060p040_rep01-03_20261118,motor_trial.py,,,2026-11-18T19:34:02,13.0,5,completed,script SHA-256 starts d81c76229121; arguments in pi/R3-L-m5_C_b060p040_rep02_20261118_193349_meta.json (parameters)
+R3-L-m5_C_b060p040_rep03_20261118_193402,R3-L-m5_C_b060p040_rep01-03_20261118,motor_trial.py,,,2026-11-18T19:34:15,13.0,5,completed,script SHA-256 starts d81c76229121; arguments in pi/R3-L-m5_C_b060p040_rep03_20261118_193402_meta.json (parameters)
+R3-L-m5_A_sweep_backward_010to036by020_rep01_20261118_195256,R3-L-m5_A_sweep_dense_forward-backward_010to036by020_rep01_20261118,motor_trial.py,,,2026-11-18T19:53:57,61.0,56,completed,script SHA-256 starts d81c76229121; arguments in pi/R3-L-m5_A_sweep_backward_010to036by020_rep01_20261118_195256_meta.json (parameters)
