@@ -37,7 +37,7 @@ from __future__ import annotations
 
 import json
 import math
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
 
 import numpy as np
@@ -64,8 +64,9 @@ from duckiebot_analysis.data.layout import (
     motor_ids,
     parse_motor_folder,
     read_runs,
+    read_trials,
 )
-from duckiebot_analysis.data.pilogs import DUTY_TOL, PiEvents
+from duckiebot_analysis.data.pilogs import DUTY_TOL, PiEvents, reconstruct_schedule
 
 FloatArray = npt.NDArray[np.float64]
 # The motor folder and the start of its run names (label), as in the article;
@@ -518,6 +519,20 @@ def check_led_sync(trials: dict[str, dict], names: list[str]) -> None:
             )
 
 
+def _e1_runs(folder: Path, pattern: str) -> list[Path]:
+    """Return the E1 runs of ``folder``: one video with both sweeps, or two.
+
+    A group may film the forward and the backward sweep as separate videos;
+    their traces are then merged, and the trials are found by prefix as before.
+    """
+    found = sorted(folder.glob(pattern))
+    if not 1 <= len(found) <= 2:
+        raise FileNotFoundError(
+            f"{folder}: expected one or two runs matching {pattern}, found {len(found)}"
+        )
+    return found
+
+
 def _one_run(folder: Path, pattern: str) -> Path:
     """Return the only run of ``folder`` matching ``pattern``.
 
@@ -551,6 +566,36 @@ def _one_trial(traces: dict[str, Trace], prefix: str) -> Trace:
     return traces[found[0]]
 
 
+def _needed_logs(
+    e1_run_of: dict[str, str], e1_trials: list[str], e2_run: str, e2_trials: list[str]
+) -> dict[str, list[str]]:
+    """Return the trials needed per run; each E1 trial in the run that holds it."""
+    needed: dict[str, list[str]] = {}
+    for trial in e1_trials:
+        needed.setdefault(e1_run_of[trial], []).append(trial)
+    needed.setdefault(e2_run, []).extend(e2_trials)
+    return needed
+
+
+def _scripted_schedules(raw: Path) -> dict[str, PiEvents]:
+    """Return the schedule of every trial of trials.csv that can be reconstructed.
+
+    A trial whose Pi log is missing or empty (sync script+led) is analysed with
+    this schedule, rebuilt from its trial identifier, duration, and number of
+    duty changes (§10.4), as scripts/process_raw.py does.
+    """
+    out: dict[str, PiEvents] = {}
+    if not (raw / "trials.csv").is_file():
+        return out
+    for record in read_trials(raw):
+        row = {k: ("" if v is None else str(v)) for k, v in asdict(record).items()}
+        try:
+            out[record.trial] = reconstruct_schedule(row)
+        except (ValueError, KeyError):
+            continue
+    return out
+
+
 def _pi_logs(
     raw: Path, needed: dict[str, list[str]], motor: str
 ) -> dict[str, PiEvents]:
@@ -570,6 +615,7 @@ def _pi_logs(
             readable log, naming runs.csv pi_log.
     """
     runs = {r.run: r for r in read_runs(raw)}
+    scripted: dict[str, PiEvents] | None = None
     out: dict[str, PiEvents] = {}
     for run, trials in needed.items():
         if run not in runs:
@@ -578,6 +624,13 @@ def _pi_logs(
             )
         logged, notes = logged_events(raw, runs[run], motor)
         for trial in trials:
+            if trial not in logged and scripted is None:
+                scripted = _scripted_schedules(raw)
+            if trial not in logged and scripted and trial in scripted:
+                # No readable Pi log (sync script+led): use the schedule
+                # reconstructed from trials.csv, as the processing does (§10.4).
+                out[trial] = scripted[trial]
+                continue
             if trial not in logged:
                 why = "; ".join(notes) or "it lists no log of this trial"
                 raise ValueError(
@@ -604,10 +657,17 @@ def case_study(data_root: Path, config: CaseStudyConfig = ARTICLE) -> CaseStudy:
     """
     proc = data_root / "processed" / config.folder
     raw = data_root / "raw" / config.folder
-    e1_path = _one_run(proc, config.e1_run)
+    e1_paths = _e1_runs(proc, config.e1_run)
+    e1_path = e1_paths[0]
     e2_path = _one_run(proc, config.e2_run)
     trials = trial_table(proc / "trials.parquet")
-    e1_all = load_traces(e1_path)
+    # E1 may be one video holding both sweeps or two videos, one per sweep.
+    e1_run_of: dict[str, str] = {}
+    e1_all: dict[str, Trace] = {}
+    for path in e1_paths:
+        traces_of_run = load_traces(path)
+        e1_all |= traces_of_run
+        e1_run_of |= dict.fromkeys(traces_of_run, path.stem)
     e1 = _one_trial(e1_all, config.e1_trial)
     neg = _one_trial(e1_all, config.e1_trial_neg)
     prefix = config.e2_prefix
@@ -621,7 +681,7 @@ def case_study(data_root: Path, config: CaseStudyConfig = ARTICLE) -> CaseStudy:
     check_led_sync(trials, [e1.trial, neg.trial, *sorted(e2)])
     logs = _pi_logs(
         raw,
-        {e1_path.stem: [e1.trial, neg.trial], e2_path.stem: sorted(e2)},
+        _needed_logs(e1_run_of, [e1.trial, neg.trial], e2_path.stem, sorted(e2)),
         config.channel.removeprefix("motor_"),
     )
     e2_changes = _e2_changes(logs, e2, trials, config.channel)
