@@ -1,0 +1,49 @@
+\subsection{P2: Gain and time constant at two operating points}
+Across three repetitions, the right wheel reached $\UpSixFinal$ rad/s after the step from rest to $u=0.6$ (Fig.~\ref{fig:g5-step-06}). Extrapolating the fitted gain to full duty predicted $\PredOne$ rad/s. The measured full-duty speed was $\MeasOne$ rad/s (Fig.~\ref{fig:g5-step-10}). In the first-order fits without delay, the gain fell by $\GainDrop\%$ and the time constant fell from $\UpSixTau$ ms to $\UpTenTau$ ms (Table~\ref{tab:g5steps}). Both parameters varied with the operating point, contrary to P2.
+
+For the first E2 trial, the uncertainty in aligning the video with the
+motor commands using the LED was $\TimingSd$ ms. For the $0.6\to1.0$
+duty step, the median per-frame uncertainty in wheel speed across the
+three repetitions was $\OmegaSd$ rad/s.
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=\linewidth]{fig-step-06.pdf}
+  \caption{Right-wheel response to the step from zero to 0.6 duty, with the first-order fit and speed residual.}
+  \label{fig:g5-step-06}
+\end{figure}
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=\linewidth]{fig-step-10.pdf}
+  \caption{Right-wheel response from 0.6 to full duty. The plot compares a fit allowing dead time with the prediction from the step to 0.6.}
+  \label{fig:g5-step-10}
+\end{figure}
+
+\begin{table*}[htbp]
+  \centering
+  \caption{Right-wheel first-order fits without delay and measured step-response indices. A dash denotes an index unresolved by the analysis.}
+  \label{tab:g5steps}
+  \begin{tabular}{lccccc}
+    \hline
+    Duty step & $G$ (rad/s per unit duty) & $\tau$ (ms) & $t_r$ (ms) & $M_p$ (\%) & $t_s$ (ms) \\
+    \hline
+    $0\to0.6$   & $\UpSixGain$    & $\UpSixTau$    & $\UpSixRise$    & $\UpSixOvershoot$   & -- \\
+    $0.6\to1.0$ & $\UpTenGain$    & $\UpTenTau$    & $\UpTenRise$    & $\UpTenOvershoot$   & -- \\
+    $1.0\to0.6$ & $\DownSixGain$  & $\DownSixTau$  & $\DownSixRise$  & $\DownSixOvershoot$ & -- \\
+    $0.6\to0$   & $\DownZeroGain$ & $\DownZeroTau$ & $\DownZeroRise$ & -- & $\DownZeroSettle$ \\
+    \hline
+  \end{tabular}
+\end{table*}
+
+\subsection{P3: Start--stop hysteresis and transient asymmetry}
+On the positive sweep, the right wheel started at $u=\StartDuty$ and stopped at $u=\StopDuty$ (Fig.~\ref{fig:g5-hysteresis}a). On the negative sweep, the corresponding signed duties were $-\NegStartDuty$ and $-\NegStopDuty$. In both directions, the wheel kept rotating at a duty magnitude below the one required to start it.
+
+Starting from rest gave a time constant of $\UpSixTau$ ms, whereas stopping from 0.6 duty gave $\DownZeroTau$ ms. The mirrored stop response therefore rose faster in the speed-change plot (Fig.~\ref{fig:g5-hysteresis}b). Between the two nonzero duty levels, the ordering reversed: the downward step had a time constant of $\DownSixTau$ ms, compared with $\UpTenTau$ ms for the upward step. These paired responses departed from the mirror symmetry predicted by P3.
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=\linewidth]{fig-hysteresis.pdf}
+  \caption{Right-wheel hysteresis. Panel (a) shows steady speed as positive duty was raised and lowered. Panel (b) overlays the speed changes during starting and stopping, with the stop response mirrored.}
+  \label{fig:g5-hysteresis}
+\end{figure}
